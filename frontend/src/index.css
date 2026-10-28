@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* Video title font: same file the renderer uses, so the preview matches the output. */
+@font-face {
+  font-family: "Title Black";
+  src: url("/fonts/Montserrat-Black.ttf") format("truetype");
+  font-display: block;
+}
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-title: "Title Black", "Inter Variable", sans-serif;
+  --color-ink: #0b0b0f;
+  --color-panel: #131318;
+  --color-panel-2: #1a1a21;
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-brand: #5669ff;
+  --color-brand-deep: #1941e3;
+  --color-sky: #4bb5ff;
+  --color-amber: #fbbf24;
+  --color-muted: #8b8b9a;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+:root {
+  color-scheme: dark; /* dark native controls (audio player, selects, scrollbars) */
+}
+
+body {
+  background: var(--color-ink);
+  color: #e9e9f0;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@utility card {
+  @apply rounded-2xl border border-line bg-panel;
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+@utility btn-primary {
+  @apply btn text-white shadow-lg shadow-brand/25;
+  background: linear-gradient(135deg, var(--color-brand-deep), var(--color-brand) 55%, var(--color-sky));
+  &:not(:disabled):hover {
+    filter: brightness(1.1);
+  }
+}
+
+@utility btn-ghost {
+  @apply btn border border-line bg-white/5 text-white hover:bg-white/10;
+}
+
+@utility input {
+  @apply w-full rounded-xl border border-line bg-ink px-3.5 py-2.5 text-base text-white sm:text-sm outline-none transition placeholder:text-muted/70 focus:border-brand focus:ring-2 focus:ring-brand/30;
+}
+
+@utility label {
+  @apply mb-1.5 block text-xs font-semibold tracking-wide text-muted uppercase;
+}
+
+.stroke-text {
+  paint-order: stroke fill;
+  -webkit-text-stroke-color: #000;
+}

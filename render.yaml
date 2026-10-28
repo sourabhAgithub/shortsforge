@@ -1,0 +1,17 @@
+# Render Blueprint: in the Render dashboard choose New → Blueprint and pick this repository.
+services:
+  - type: web
+    name: shortsforge
+    runtime: docker
+    plan: free  # Free has no persistent disk: projects and videos are wiped on every restart or deploy.
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: APP_USERNAME
+        value: admin
+      - key: APP_PASSWORD  # login password; Render asks for it when you create the Blueprint
+        sync: false
+      - key: PIXABAY_API_KEY  # optional, stock footage
+        sync: false
+      - key: POLLINATIONS_TOKEN  # optional, faster AI images
+        sync: false

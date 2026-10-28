@@ -1,0 +1,247 @@
+# ShortsForge
+
+Make faceless YouTube Shorts on your own computer. It's free, there's no login, and it uses no paid services.
+
+Two tools work today:
+
+- **Ranking Video:** paste 3–10 clip links, give each one a caption, and get a 1080×1920 countdown Short. It
+  has a bold two-line title at the top and a rank list down the side that fills in as each clip plays.
+- **AI Video Generator:** upload a voiceover and paste a scene-by-scene script. Each scene gets footage made
+  from its description, and the app builds a finished Short with a title banner, big labels, captions and
+  a ranking list.
+
+The other tools in the sidebar are marked "Coming soon".
+
+---
+
+## 1. One-time setup
+
+### Install Python (required)
+
+1. Go to <https://www.python.org/downloads/> and click the big yellow **Download Python** button.
+2. Run the installer.
+   - **Windows:** on the first screen, tick **"Add python.exe to PATH"**, then click *Install Now*.
+   - **Mac:** click through the installer as normal.
+
+You need Python 3.10 or newer.
+
+### Node.js (usually not needed)
+
+The interface comes pre-built, so you don't need Node. If you ever delete the `frontend/dist` folder, install
+the LTS version from <https://nodejs.org> and the start script will rebuild it.
+
+You also don't need to install **ffmpeg**, because one is downloaded automatically.
+
+## 2. Start the app
+
+- **Windows:** double-click **`start.bat`**.
+- **Mac:** double-click **`start.command`**. The first time, macOS may block it. If so, right-click it,
+  choose **Open**, then click **Open** again.
+- **Linux:** run `./start.sh` in a terminal.
+
+The first start takes a minute or two while it installs what it needs. After that it opens
+<http://localhost:8000> in your browser.
+
+**Keep the black window open while you use the app.** Close it to stop ShortsForge.
+
+### Use it from your phone or tablet
+
+The app works on small screens: the menu moves behind the ☰ button and the editors stack into one column.
+The app still runs on your computer. Your phone just opens it over Wi-Fi:
+
+1. Start it in phone mode from a terminal in the ShortsForge folder: `./start.sh --phone` on Mac/Linux, or
+   `start.bat --phone` on Windows.
+2. The window prints an address like `http://192.168.1.20:8000`. Open it in your phone's browser. The phone must be
+   on the same Wi-Fi as the computer.
+3. If it doesn't load, allow incoming connections for Python when your computer's firewall asks.
+
+While phone mode is on, anyone on the same Wi-Fi can open the app, so only use it on a network you trust.
+Without `--phone`, only this computer can open the app.
+
+## 3. Make a ranking video
+
+1. Click **Ranking Video**, then **Create Ranking Video**.
+2. **Title:** type your title, for example `Ranking Best`, then press **Enter**, then `Parkour Fails`.
+   Two lines look best. Pick a color, then click words (like *Parkour*) in the box underneath to highlight them.
+3. **Clips:** in each **Rank** slot, paste a YouTube Shorts, Instagram Reel or TikTok link and press
+   **Enter** (or the send button). The clip downloads and its thumbnail appears. Then type a short caption,
+   like `Aura Lost`.
+   - 5–7 clips work best. Use **Add rank** to add more (up to 10), or the trash icon to remove one (minimum 3).
+   - Use the ↑/↓ arrows to move a clip to a different rank.
+   - The ✂ button lets you choose which seconds of the clip to use.
+   - The upload button lets you use a video file from your computer instead of a link.
+4. **Playback order:** by default the clips play as a countdown (5 → 4 → 3 → 2 → 1). Turn on
+   **Custom playback order** to **Shuffle** (#1 always stays last) or drag the ranks into any order.
+5. **Style & timing:** set the maximum seconds per clip (default 8), choose *Fit + blur* or *Fill (crop)*,
+   and pick the title size and colors.
+6. The phone on the right shows a live preview. Click the `#` buttons under it to see each moment.
+7. Click **Generate Video**. When it finishes, watch it and click **Download MP4**.
+
+All your videos are saved under **My Videos**. Projects save automatically, so you can close the app and
+carry on later.
+
+The estimated length shows above the Generate button. YouTube Shorts can be up to 3 minutes long, but ranking
+videos usually do best under 60 seconds, so the app warns you when you go over.
+
+## 4. Make an AI video
+
+1. Click **AI Video Generator**, then **Create AI Video**.
+2. **Title:** shown in a banner at the top of the whole video.
+3. **Voiceover:** upload your narration as an MP3 or WAV. The video will be exactly as long as this audio.
+4. **Script:** paste a table like the one below and click **Parse into scenes**, or build it scene by scene
+   in the **Scene editor**.
+
+   ```
+   | Time | Voiceover | On screen |
+   |---|---|---|
+   | 3–11s | #5 San Marino: 61 km², founded in 301 AD | Hilltop castle in the clouds, label "61 km²" |
+   ```
+
+   - Text in quotes in the *On screen* column becomes the big on-screen label. The rest describes the footage.
+   - A voiceover starting with `#5 San Marino:` puts "San Marino" at #5 in the ranking list.
+   - If you leave out the times, the audio is split by how many words each scene has.
+   - Click the small picture box on a scene to use your own image or video for it.
+   - **Framing** (per scene): how the picture fits the video. *Fill frame* crops the edges so the picture
+     fills the space (default). *Fit whole image* shows everything, with a blurred or black background
+     around it. *Full screen* covers the whole video including the title banner, which is ideal for a
+     finished 9:16 graphic like an end slide.
+   - **Image motion** (per scene): how a still image moves while it's on screen. Choose Auto (varies from
+     scene to scene), Keep still, Zoom in, Zoom out, or Pan left/right/up/down. Video clips play as they are.
+5. **Footage (step 1):** pick a source and click **Generate footage**. Each scene shows a thumbnail. Use
+   **Regenerate** on any scene you don't like.
+   - *AI generated* (default): an AI image for each scene. If that fails, stock footage. If that fails too,
+     a moving colour gradient.
+   - *Stock footage:* real videos and photos from Pixabay or Pexels (needs a free key, see below).
+   - *My uploads only:* your own files, with gradients for any scene that has none.
+6. **Music & effects:** optional background music (volume 12% by default), captions, the ranking list, and
+   a whoosh sound on each scene change.
+7. **Preview & timeline:** check and fine-tune the timing before rendering.
+   - **Auto-sync to voiceover** listens to your audio, works out when each word is spoken, and times every
+     scene change and caption to match. It takes a few seconds; the first time it also downloads a free
+     speech model (about 140 MB). Everything runs on your computer.
+   - Press **Play** to watch a live preview with your voiceover and music: title, footage, labels, ranking
+     list and captions all play in sync.
+   - **Scenes track:** drag the blue lines between scenes to change when the picture changes.
+   - **Labels track:** each scene's big on-screen label shows for the whole scene by default. Drag it to
+     move it, or drag its edges, to show it only at a particular moment. You can also type exact times in the
+     scene's label box (or in the "Show from … to … s" fields in the Scene editor), or click
+     **Show for whole scene** to go back.
+   - **Captions track:** drag a caption to move it, or drag its edges to change when it appears and disappears.
+   - **Show label / Show ranking list:** switch these off to hide the text on top of the image (the label box
+     and the #1–#5 list) for that scene. The same switches are on each scene in the Scene editor.
+   - **Show captions in this scene:** switch it off to have no captions while that scene is on screen (for
+     example on the last image). The voiceover still plays. The same switch is on each scene in the Scene editor.
+   - **Scene captions list:** edit the words and the exact show/hide times (in seconds) for the scene under the
+     playhead, add or delete captions, or **Reset to automatic**.
+8. **Render video (step 2):** watch the progress bar, then preview and **Download MP4**.
+
+**About the free AI images.** Without a key, the free image service only allows about **one image every 45
+seconds**, so a 7-scene video takes around 5 minutes to generate footage for. The progress text shows the
+wait. To make it fast, add keys as described below.
+
+### Optional API keys
+
+Copy `.env.example` to a new file called `.env` in the same folder, fill in the keys you have, and restart
+the app:
+
+| Setting | What it does | Where to get it |
+| --- | --- | --- |
+| `POLLINATIONS_TOKEN` | Removes the 45-second wait between AI images and the small corner logo | <https://enter.pollinations.ai> |
+| `PIXABAY_API_KEY` | Turns on stock footage (used when AI fails, or as the "Stock footage" source) | Sign up free at <https://pixabay.com>, then copy the key from <https://pixabay.com/api/docs/> |
+| `PEXELS_API_KEY` | Same as above, using Pexels (tried first if both are set) | <https://www.pexels.com/api/> (new keys paused at the moment) |
+
+Without any keys, everything still works: free AI images (slow), with gradients as the fallback.
+
+## 5. Fixing download problems
+
+**"The site asked for a login or is rate-limiting downloads" (common with Instagram)**
+
+1. Open your normal browser (Chrome, Edge, Firefox, Safari or Brave) and log in to Instagram.
+2. In ShortsForge, go to **Settings → Use cookies from my browser** and pick that browser.
+3. **Close that browser completely**, then try the link again.
+
+- **Safari on Mac:** open System Settings → Privacy & Security → Full Disk Access, and turn it on for **Terminal**.
+- **Chrome/Edge on Windows:** these browsers lock their cookies while open, so close them before downloading.
+
+**"This video is private" or "unavailable":** the post was deleted, is private, or the link has a typo.
+
+**"The site blocked the download or changed its layout":** close the black window and start the app
+again. It updates its downloader every time it starts.
+
+**Nothing happens or "Can't reach ShortsForge":** the black window was closed. Start the app again.
+
+## Put it online (Render)
+
+The repository includes a `Dockerfile` and a `render.yaml` Blueprint for [Render](https://render.com).
+
+1. Push this folder to a GitHub repository (private is fine).
+2. In the Render dashboard choose **New → Blueprint**, connect the repository and select it.
+3. Render asks for the values marked secret:
+   - **APP_PASSWORD** (required): the password for the login prompt. The username is `admin` (change
+     **APP_USERNAME** to use another one).
+   - **PIXABAY_API_KEY** and **POLLINATIONS_TOKEN** are optional, the same as in `.env` locally.
+4. Click **Apply**. The first build takes about 5–10 minutes. The app then runs at
+   `https://shortsforge-xxxx.onrender.com`. Every push to the repository redeploys it.
+
+Things to know about the online version:
+
+- **The Free plan keeps nothing.** Projects, uploads and videos are deleted whenever the service
+  restarts, redeploys or goes to sleep (after about 15 minutes without visits). Download your
+  videos right after rendering. To keep files, switch to a paid plan and add a disk mounted at
+  `/app/data`.
+- **Free has 512 MB of memory.** Long renders or Auto-sync can run out, and the service then restarts.
+  A plan with 2 GB of memory is the reliable choice. The first visit after sleeping takes about a minute.
+- **Link downloads may fail.** YouTube, Instagram and TikTok often block servers in data centers.
+  Uploading the clip file works instead.
+- To use your own domain, open the service's **Settings → Custom Domains** in Render and add the DNS
+  record it shows.
+
+## Where things are stored
+
+Everything stays in the `data` folder next to this file:
+
+| Folder | What's in it |
+| --- | --- |
+| `data/downloads/` | downloaded clips (reused, so the same link isn't downloaded twice) |
+| `data/projects/` | your projects (JSON; AI videos in `projects/aivideo/`) |
+| `data/aivideo/` | AI video uploads and generated footage, one folder per project (deleted with the project) |
+| `data/outputs/` | finished videos and their thumbnails |
+
+Delete `data/downloads` any time to free up space. Projects will re-download their clips when you generate.
+
+Only download videos you have the right to use.
+
+---
+
+## For developers
+
+```
+backend/app/
+  main.py            FastAPI app: shared API (downloads, jobs, settings, videos) + serves the UI
+  downloader.py      yt-dlp wrapper (no-watermark formats, URL cache, friendly errors)
+  ffmpeg_util.py     bundled ffmpeg (imageio-ffmpeg) with system fallback, probing
+  jobs.py            background jobs polled by the UI
+  tools/__init__.py  tool registry (backend routers)
+  tools/ranking/     models, Pillow overlay drawing, ffmpeg render pipeline, API
+  tools/aivideo/     script parser, footage providers (AI / Pexels / Pixabay / gradient), overlays,
+                     render, auto-sync (faster-whisper word timings), API
+  textdraw.py        outlined text with colour emoji (uses the system emoji font)
+frontend/src/
+  tools/registry.tsx tool list shown in the sidebar/dashboard
+  tools/ranking/     ranking editor UI; layout.ts mirrors overlay.py for the live preview
+  tools/aivideo/     AI video editor UI; PreviewFrame + layout.ts mirror the renderer for the live preview
+  components/        pieces shared by the tools (Section, ToolHome, RenderDialog, Switch)
+assets/fonts/        Montserrat Black (SIL OFL), used for the video text and the preview
+```
+
+- **Add a tool:** create `backend/app/tools/<tool>/api.py` with a `router` and register it in
+  `tools/__init__.py`. Then create `frontend/src/tools/<tool>/` and switch its entry in `registry.tsx` to
+  `status: "ready"` with a `component`.
+- **Render pipeline:** each clip is rendered as its own segment. A segment is the clip scaled into a 1080×1500
+  area (fit + blur or fill), a PNG overlay with the title band and rank list drawn by Pillow, and audio
+  normalized with loudnorm (or silence for clips with none). The segments are then joined with the concat
+  demuxer into H.264/AAC MP4 at 30 fps.
+- **Tests:** `.venv/bin/python -m pytest backend/tests`. They generate sample clips with ffmpeg, render
+  them, and check the frames and audio. No internet needed.
+- **UI dev server:** run the backend, then `cd frontend && npm run dev`. Vite proxies `/api` to port 8000.
+  Run `npm run build` before shipping.
