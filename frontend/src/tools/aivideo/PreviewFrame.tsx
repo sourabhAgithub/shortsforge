@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { measure } from "../ranking/layout";
+import { measure, normWord } from "../ranking/layout";
 import {
   ACCENT,
   BANNER_H,
@@ -70,7 +70,7 @@ function Outlined({
   color = "#fff",
   ratio = 0.09,
 }: {
-  text: string;
+  text: ReactNode;
   size: number;
   color?: string;
   ratio?: number;
@@ -321,7 +321,24 @@ export default function PreviewFrame({
           >
             <div className="pb-2.5 text-center">
               {titleLines.map((l, k) => (
-                <Outlined key={k} text={l} size={titleSize} />
+                <Outlined
+                  key={k}
+                  size={titleSize}
+                  text={l.split(" ").map((w, j) => (
+                    <span
+                      key={j}
+                      style={{
+                        color:
+                          project.title_highlights?.[normWord(w)] ??
+                          project.title_color ??
+                          "#FFFFFF",
+                      }}
+                    >
+                      {j ? " " : ""}
+                      {w}
+                    </span>
+                  ))}
+                />
               ))}
               {!title && (
                 <span className="font-sans text-[48px] text-white/25">

@@ -275,7 +275,8 @@ def render(p: AiProject, job: Job | None = None) -> dict:
             base = work / f"base_{i}.png"
             base_overlay(p.title, ranks, set(revealed), scene.rank,
                          p.settings.ranking and scene.show_ranks,
-                         show_banner=scene.fit != "fullscreen").save(base)
+                         show_banner=scene.fit != "fullscreen", title_color=p.title_color,
+                         title_highlights=p.title_highlights).save(base)
             label = None
             seg_start = starts[i] / FPS
             la, lb = label_window(scene, seg_start, seg_start + dur)

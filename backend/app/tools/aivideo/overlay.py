@@ -2,6 +2,8 @@
 
 frontend/src/tools/aivideo/layout.ts mirrors the main numbers for the editor preview.
 """
+import re
+
 from PIL import Image, ImageDraw
 
 from ... import textdraw as td
@@ -33,7 +35,31 @@ def _lines_block(lines: list[str], size: int, fill: str, ratio: float, pad: int 
     return img
 
 
-def banner(img: Image.Image, title: str) -> None:
+def norm_word(w: str) -> str:
+    """Key for title highlights: lower case, punctuation dropped (same as the editor's)."""
+    return re.sub(r"[^\w]", "", w.lower())
+
+
+def _title_block(lines: list[str], size: int, color: str, highlights: dict[str, str]) -> Image.Image:
+    """Like _lines_block, but each word can have its own colour."""
+    stroke = _stroke(size)
+    line_h = round(size * 1.18)
+    space = td.measure(" ", size)
+    widths = [[td.measure(w, size) for w in line.split()] for line in lines]
+    totals = [sum(ws) + space * (len(ws) - 1) for ws in widths]
+    width = round(max(totals)) + 2 * stroke
+    img = Image.new("RGBA", (width, line_h * len(lines) + 2 * stroke), (0, 0, 0, 0))
+    for i, line in enumerate(lines):
+        x = (width - totals[i]) / 2
+        for w, ww in zip(line.split(), widths[i]):
+            td.draw(img, x, stroke + line_h * i + line_h / 2, w, size,
+                    highlights.get(norm_word(w), color), stroke)
+            x += ww + space
+    return img
+
+
+def banner(img: Image.Image, title: str, color: str = "#FFFFFF",
+           highlights: dict[str, str] | None = None) -> None:
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, W, BANNER_H], fill="black")
     for x in range(W):  # accent bar along the bottom of the banner
@@ -48,7 +74,7 @@ def banner(img: Image.Image, title: str) -> None:
     if size < 64:
         lines = td.wrap_balanced(title, W - 80, 64)
         size = min(td.fit_size(lines, W - 80, 84), round((BANNER_H - 50) / (1.18 * len(lines))))
-    block = _lines_block(lines, size, "white", 0.09)
+    block = _title_block(lines, size, color, highlights or {})
     img.alpha_composite(block, ((W - block.width) // 2, (BANNER_H - 10 - block.height) // 2))
 
 
@@ -83,10 +109,11 @@ def rank_list(img: Image.Image, ranks: dict[int, str], revealed: set[int], curre
 
 
 def base_overlay(title: str, ranks: dict[int, str], revealed: set[int], current: int | None,
-                 show_ranks: bool, show_banner: bool = True) -> Image.Image:
+                 show_ranks: bool, show_banner: bool = True, title_color: str = "#FFFFFF",
+                 title_highlights: dict[str, str] | None = None) -> Image.Image:
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     if show_banner:
-        banner(img, title)
+        banner(img, title, title_color, title_highlights)
     if show_ranks and ranks:
         rank_list(img, ranks, revealed, current)
     return img

@@ -1,9 +1,11 @@
 """AI Video project data model (saved as JSON in data/projects/aivideo)."""
 import time
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
+
+HexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9A-Fa-f]{6}$")]
 
 
 class MediaFile(BaseModel):
@@ -66,6 +68,9 @@ class AiProject(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
     tool: str = "aivideo"
     title: str = ""
+    title_color: HexColor = "#FFFFFF"
+    # Words drawn in their own colour: normalised word ("smallest") -> "#RRGGBB".
+    title_highlights: dict[str, HexColor] = {}
     voiceover: MediaFile | None = None
     music: MediaFile | None = None
     script_text: str = ""

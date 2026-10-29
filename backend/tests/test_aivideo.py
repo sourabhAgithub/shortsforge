@@ -373,3 +373,15 @@ def test_labels_off_for_whole_video():
     mp4 = Path(ft.AIVIDEO_DIR).parent / "outputs" / f"{render(p)['id']}.mp4"
     label_box = (100, LABEL_CY - 60, 980, LABEL_CY + 60)
     assert count(frame_at(mp4, 1.0), label_box, lambda px: min(px) > 225) == 0
+
+
+def test_title_color_and_highlighted_words():
+    from app.tools.aivideo.overlay import BANNER_H, base_overlay
+    img = base_overlay("Red Blue", {}, set(), None, False, title_color="#FF0000",
+                       title_highlights={"blue": "#0000FF"}).convert("RGB")
+    left, right = (0, 0, 540, BANNER_H), (540, 0, 1080, BANNER_H)
+    is_red = lambda px: px[0] > 200 and px[1] < 60 and px[2] < 60
+    is_blue = lambda px: px[2] > 200 and px[0] < 60 and px[1] < 60
+    assert count(img, left, is_red) > 500 and count(img, left, is_blue) == 0
+    assert count(img, right, is_blue) > 500 and count(img, right, is_red) == 0
+    assert AiProject().title_color == "#FFFFFF"  # old projects stay white

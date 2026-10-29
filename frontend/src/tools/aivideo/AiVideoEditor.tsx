@@ -34,6 +34,7 @@ import Switch from "../../components/Switch";
 import FootagePanel from "./FootagePanel";
 import PreviewPanel from "./PreviewPanel";
 import SceneRow from "./SceneRow";
+import TitleColors from "./TitleColors";
 import {
   type AiProject,
   type AiSettings,
@@ -478,6 +479,13 @@ export default function AiVideoEditor() {
           <p className="mt-2 text-xs text-muted">
             Shown in a bold banner at the top for the whole video.
           </p>
+          <TitleColors
+            title={project.title}
+            color={project.title_color ?? "#FFFFFF"}
+            highlights={project.title_highlights ?? {}}
+            onColor={(title_color) => patch({ title_color })}
+            onHighlights={(title_highlights) => patch({ title_highlights })}
+          />
         </Section>
 
         <Section n={2} title="Voiceover">

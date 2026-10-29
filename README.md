@@ -86,7 +86,8 @@ videos usually do best under 60 seconds, so the app warns you when you go over.
 ## 4. Make an AI video
 
 1. Click **AI Video Generator**, then **Create AI Video**.
-2. **Title:** shown in a banner at the top of the whole video.
+2. **Title:** shown in a banner at the top of the whole video. Pick a **Title color**, or pick a **Highlight words** color and click
+   words to paint just those, e.g. *Tallest Mountains* in red on a yellow title.
 3. **Voiceover:** upload your narration as an MP3 or WAV. The video will be exactly as long as this audio.
 4. **Script:** paste a table like the one below and click **Parse into scenes**, or build it scene by scene
    in the **Scene editor**.
