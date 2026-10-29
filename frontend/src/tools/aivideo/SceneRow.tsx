@@ -17,6 +17,7 @@ type Props = {
   count: number;
   timing: [number, number] | null;
   uploading: boolean;
+  rankingOn: boolean; // the whole-video "Ranking list" setting
   onChange: (patch: Partial<Scene>) => void;
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
@@ -34,6 +35,7 @@ export default function SceneRow({
   count,
   timing,
   uploading,
+  rankingOn,
   onChange,
   onRemove,
   onMove,
@@ -222,16 +224,22 @@ export default function SceneRow({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="label mb-0">Ranking list</span>
-              <label className="flex items-center gap-2 text-[11px] text-muted">
-                Show
-                <Switch
-                  on={scene.show_ranks !== false}
-                  onChange={(v) => onChange({ show_ranks: v })}
-                  label="Show the ranking list in this scene"
-                />
-              </label>
+              {rankingOn ? (
+                <label className="flex items-center gap-2 text-[11px] text-muted">
+                  Show
+                  <Switch
+                    on={scene.show_ranks !== false}
+                    onChange={(v) => onChange({ show_ranks: v })}
+                    label="Show the ranking list in this scene"
+                  />
+                </label>
+              ) : (
+                <span className="text-[11px] text-muted">
+                  Off for the whole video
+                </span>
+              )}
             </div>
-            <div className="flex gap-2">
+            <div className={`flex gap-2 ${rankingOn ? "" : "opacity-40"}`}>
               <select
                 value={scene.rank ?? ""}
                 onChange={(e) =>

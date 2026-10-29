@@ -478,14 +478,18 @@ export default function PreviewPanel({
                         label="Show the label in this scene"
                       />
                     </label>
-                    <label className="flex items-center gap-2 text-xs text-muted">
-                      Show ranking list
-                      <Switch
-                        on={sc.show_ranks !== false}
-                        onChange={(v) => patchScene(current, { show_ranks: v })}
-                        label="Show the ranking list in this scene"
-                      />
-                    </label>
+                    {s.ranking && (
+                      <label className="flex items-center gap-2 text-xs text-muted">
+                        Show ranking list
+                        <Switch
+                          on={sc.show_ranks !== false}
+                          onChange={(v) =>
+                            patchScene(current, { show_ranks: v })
+                          }
+                          label="Show the ranking list in this scene"
+                        />
+                      </label>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
