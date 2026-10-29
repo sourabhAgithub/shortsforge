@@ -23,7 +23,7 @@ function Swatches({
           key={c}
           title={c}
           onClick={() => onPick(c)}
-          className={`size-7 rounded-full ring-1 ring-white/10 ring-offset-2 ring-offset-panel transition ${value.toUpperCase() === c ? "ring-2 ring-white" : ""}`}
+          className={`size-7 rounded-full transition ${value.toUpperCase() === c ? "scale-110 ring-2 ring-white ring-offset-2 ring-offset-panel" : "ring-1 ring-white/15 hover:scale-105"}`}
           style={{ background: c }}
         />
       ))}
@@ -50,6 +50,11 @@ type Props = {
   onHighlights: (h: Record<string, string>) => void;
 };
 
+/** A highlight colour that differs from the title colour, so painted words stand out. */
+const contrastWith = (color: string) =>
+  TITLE_COLORS.find((c) => c !== color.toUpperCase() && c !== "#FFFFFF") ??
+  "#F43F5E";
+
 /** Title colour plus optional per-word highlight colours (click a word to paint it). */
 export default function TitleColors({
   title,
@@ -58,7 +63,13 @@ export default function TitleColors({
   onColor,
   onHighlights,
 }: Props) {
-  const [brush, setBrush] = useState(KEYWORD_COLORS[1]);
+  const [brush, setBrush] = useState(() => contrastWith(color));
+  const same = brush.toUpperCase() === color.toUpperCase();
+
+  function pickTitleColor(c: string) {
+    onColor(c);
+    if (c.toUpperCase() === brush.toUpperCase()) setBrush(contrastWith(c));
+  }
   const words = title.split(/\s+/).filter(Boolean);
 
   function toggle(word: string) {
@@ -72,7 +83,7 @@ export default function TitleColors({
     <div className="mt-5 grid gap-5 sm:grid-cols-2">
       <div>
         <span className="label">Title color</span>
-        <Swatches value={color} onPick={onColor} />
+        <Swatches value={color} onPick={pickTitleColor} />
       </div>
       <div>
         <div className="flex items-center justify-between">
@@ -89,10 +100,17 @@ export default function TitleColors({
         <Swatches value={brush} onPick={setBrush} />
       </div>
       <div className="sm:col-span-2">
-        <p className="mb-2 text-xs text-muted">
-          Pick a highlight color, then click words to paint them. Click again to
-          remove.
-        </p>
+        {same ? (
+          <p className="mb-2 text-xs text-amber">
+            The highlight color is the same as the title color, so painted words
+            won't stand out. Pick a different highlight color.
+          </p>
+        ) : (
+          <p className="mb-2 text-xs text-muted">
+            Click words below to paint them in the highlight color. Click a
+            painted word again to remove it.
+          </p>
+        )}
         <div className="flex flex-wrap gap-1.5 rounded-xl border border-line bg-ink p-3">
           {words.length === 0 && (
             <p className="text-sm text-muted">
