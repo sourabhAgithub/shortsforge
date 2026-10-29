@@ -1,13 +1,16 @@
 """HTTP routes for the Ranking Video tool, mounted at /api/ranking."""
 import json
 import re
+import shutil
 import time
+import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile
 
 from ... import downloader, jobs
-from ...config import PROJECTS_DIR
-from .models import Project
+from ...config import PROJECTS_DIR, RANKING_DIR
+from ...ffmpeg_util import FFmpegError, probe
+from .models import MediaFile, Project
 from .render import render
 
 router = APIRouter()
@@ -76,7 +79,34 @@ def put_project(project_id: str, p: Project) -> Project:
 @router.delete("/projects/{project_id}")
 def delete_project(project_id: str) -> dict:
     _path(project_id).unlink(missing_ok=True)
+    shutil.rmtree(RANKING_DIR / project_id, ignore_errors=True)  # uploaded audio
     return {"ok": True}
+
+
+AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
+
+
+@router.post("/projects/{project_id}/audio")
+def upload_audio(project_id: str, file: UploadFile) -> MediaFile:
+    """External audio (music or a voiceover) to use instead of, or with, the clips' sound."""
+    _path(project_id)  # validates the id
+    ext = "." + (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
+    if ext not in AUDIO_EXTS:
+        raise HTTPException(400, "Please choose an audio file (MP3, WAV or M4A).")
+    folder = RANKING_DIR / project_id
+    folder.mkdir(parents=True, exist_ok=True)
+    dest = folder / f"audio_{uuid.uuid4().hex[:6]}{ext}"
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
+    try:
+        info = probe(dest)
+        if not info.has_audio or info.duration < 0.5:
+            raise FFmpegError("no audio")
+    except FFmpegError:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, "That file has no readable audio. Try exporting it as MP3 or WAV.") from None
+    return MediaFile(file=dest.name, name=file.filename or dest.name, duration=round(info.duration, 3),
+                     url=f"/media/ranking/{project_id}/{dest.name}")
 
 
 @router.post("/projects/{project_id}/render")

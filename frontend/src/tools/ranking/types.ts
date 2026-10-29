@@ -9,10 +9,26 @@ export type Slot = {
   clip: Clip | null;
   start: number | null;
   end: number | null;
+  mute: boolean; // true = don't use this clip's own sound
+  zoom: number; // 1-4, crop into the clip
+  pan_x: number; // 0 = left, 1 = right
+  pan_y: number; // 0 = top, 1 = bottom
 };
+
+export type MediaFile = {
+  file: string;
+  name: string;
+  duration: number;
+  url: string;
+};
+export type AudioMode = "original" | "external" | "both";
 
 export type RankSettings = {
   max_seconds: number;
+  clip_length: "max" | "full";
+  audio_mode: AudioMode;
+  original_volume: number;
+  external_volume: number;
   fit_mode: "fit" | "fill";
   title_font_size: number;
   keyword_color: string;
@@ -29,15 +45,26 @@ export type Project = {
   custom_order: boolean;
   order: number[];
   settings: RankSettings;
+  external_audio: MediaFile | null;
   created_at: number;
   updated_at: number;
   last_video_id: string | null;
 };
 
-
 export const MIN_SLOTS = 3;
 export const MAX_SLOTS = 10;
 
 export function newSlot(): Slot {
-  return { id: Math.random().toString(36).slice(2, 10), url: "", caption: "", clip: null, start: null, end: null };
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    url: "",
+    caption: "",
+    clip: null,
+    start: null,
+    end: null,
+    mute: false,
+    zoom: 1,
+    pan_x: 0.5,
+    pan_y: 0.5,
+  };
 }

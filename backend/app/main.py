@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from . import downloader, jobs, settings, videos
 from .config import (AIVIDEO_DIR, APP_NAME, ASSETS_DIR, DOWNLOADS_DIR, FRONTEND_DIST, OUTPUTS_DIR,
+                     RANKING_DIR,
                      WORK_DIR, ensure_dirs)
 from .ffmpeg_util import ffmpeg_exe
 from .tools import TOOL_ROUTERS
@@ -152,6 +153,7 @@ def delete_video(video_id: str) -> dict:
 app.mount("/media/downloads", StaticFiles(directory=DOWNLOADS_DIR), name="downloads")
 app.mount("/media/outputs", StaticFiles(directory=OUTPUTS_DIR), name="outputs")
 app.mount("/media/aivideo", StaticFiles(directory=AIVIDEO_DIR), name="aivideo")
+app.mount("/media/ranking", StaticFiles(directory=RANKING_DIR), name="ranking")
 app.mount("/fonts", StaticFiles(directory=ASSETS_DIR / "fonts"), name="fonts")
 
 if (FRONTEND_DIST / "assets").exists():

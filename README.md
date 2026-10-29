@@ -68,14 +68,22 @@ Without `--phone`, only this computer can open the app.
    like `Aura Lost`.
    - 5–7 clips work best. Use **Add rank** to add more (up to 10), or the trash icon to remove one (minimum 3).
    - Use the ↑/↓ arrows to move a clip to a different rank.
-   - The ✂ button lets you choose which seconds of the clip to use.
+   - **✂ Edit clip** opens that clip's editor:
+     - **Timeline:** the bar is the whole clip. Drag the blue part (or its edges) to choose what plays, or type
+       the seconds. **Auto** goes back to playing from the start. A striped end means "max seconds" cuts it off.
+     - **Crop:** zoom in, then move left/right and up/down to choose which part of the clip shows.
+     - **Use this clip's sound:** turn it off to make just this clip silent.
    - The upload button lets you use a video file from your computer instead of a link.
 4. **Playback order:** by default the clips play as a countdown (5 → 4 → 3 → 2 → 1). Turn on
    **Custom playback order** to **Shuffle** (#1 always stays last) or drag the ranks into any order.
-5. **Style & timing:** set the maximum seconds per clip (default 8), choose *Fit + blur* or *Fill (crop)*,
-   and pick the title size and colors.
-6. The phone on the right shows a live preview. Click the `#` buttons under it to see each moment.
-7. Click **Generate Video**. When it finishes, watch it and click **Download MP4**.
+5. **Style & timing:** choose the clip length, either *Up to max seconds* (default 8) or *Full clip (auto)*,
+   which plays each clip's whole trimmed part. Choose *Fit + blur* or *Fill (crop)*, and pick the title size
+   and colors.
+6. **Sound:** keep the *Clips' original sound*, use *My audio only* (upload music or a voiceover), or
+   *Both mixed*, and set the volumes. Your track loops if it's shorter than the video and fades out at the end.
+7. **Live preview:** press Play to watch the finished video in the page, with your real clips, trims, crops,
+   sound and the title and rank list. It updates as you edit. Click a rank or the bar to jump around.
+8. Click **Generate Video**. When it finishes, watch it and click **Download MP4**.
 
 All your videos are saved under **My Videos**. Projects save automatically, so you can close the app and
 carry on later.

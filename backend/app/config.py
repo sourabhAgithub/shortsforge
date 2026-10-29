@@ -27,6 +27,7 @@ WORK_DIR = DATA_DIR / "work"
 BIN_DIR = DATA_DIR / "bin"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 AIVIDEO_DIR = DATA_DIR / "aivideo"  # per-project uploads and footage for the AI Video tool
+RANKING_DIR = DATA_DIR / "ranking"  # per-project external audio for the Ranking tool
 
 ASSETS_DIR = ROOT / "assets"
 FONT_PATH = ASSETS_DIR / "fonts" / "Montserrat-Black.ttf"
@@ -36,5 +37,5 @@ APP_NAME = "ShortsForge"
 
 
 def ensure_dirs() -> None:
-    for d in (DOWNLOADS_DIR, PROJECTS_DIR, OUTPUTS_DIR, WORK_DIR, BIN_DIR, AIVIDEO_DIR):
+    for d in (DOWNLOADS_DIR, PROJECTS_DIR, OUTPUTS_DIR, WORK_DIR, BIN_DIR, AIVIDEO_DIR, RANKING_DIR):
         d.mkdir(parents=True, exist_ok=True)

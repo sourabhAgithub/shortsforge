@@ -11,10 +11,11 @@ import pytest
 from PIL import Image
 
 from app import downloader
-from app.config import WORK_DIR, ensure_dirs
+from app.config import RANKING_DIR, WORK_DIR, ensure_dirs
 from app.ffmpeg_util import ffmpeg_exe, probe, run_ffmpeg
-from app.tools.ranking.models import Project, RankSettings, Slot, playback_order, shuffled_order
-from app.tools.ranking.overlay import BAND_H, LIST_TOP, rank_metrics
+from app.tools.ranking.models import (MediaFile, Project, RankSettings, Slot, playback_order,
+                                      shuffled_order)
+from app.tools.ranking.overlay import BAND_H, LIST_TOP, W, rank_metrics
 from app.tools.ranking.render import render
 
 # (rank, colour, size, has_audio, seconds)
@@ -174,3 +175,54 @@ def test_render_reports_missing_clip():
 def test_unavailable_error_is_friendly():
     msg = downloader.friendly_error("ERROR: [youtube] abc: This video is unavailable", "none", "youtube.com")
     assert msg.startswith("That video is unavailable")
+
+
+def _output(video: dict) -> Path:
+    return Path(downloader.DOWNLOADS_DIR).parent / "outputs" / f"{video['id']}.mp4"
+
+
+def test_full_clip_length(project: Project):
+    p = project.model_copy(deep=True)
+    p.settings.clip_length = "full"
+    video = render(p)
+    # Rank 1 plays its whole 2.5s trim; the others play their full length.
+    assert [(t["rank"], round(t["end"] - t["start"], 1)) for t in video["timeline"]] == \
+        [(3, 4.0), (2, 4.0), (4, 1.2), (1, 2.5)]
+
+
+def test_mute_and_external_audio(project: Project):
+    p = project.model_copy(deep=True)
+    p.slots[2].mute = True  # rank 3 has sound, but is muted
+    timeline = render(p)
+    mp4 = _output(timeline)
+    seg3 = next(t for t in timeline["timeline"] if t["rank"] == 3)
+    assert mean_volume(mp4, seg3["start"] + 0.3, 1.0) < -60
+
+    track = RANKING_DIR / p.id / "audio_test.wav"
+    track.parent.mkdir(parents=True, exist_ok=True)
+    run_ffmpeg(["-f", "lavfi", "-i", "sine=frequency=660:duration=3", str(track)])  # loops
+    p.external_audio = MediaFile(file=track.name, duration=3)
+    p.settings.audio_mode = "external"
+    video = render(p)
+    mp4 = _output(video)
+    for seg in video["timeline"]:  # sound everywhere, also over the silent clips 2 and 4
+        assert mean_volume(mp4, seg["start"] + 0.2, min(0.6, seg["end"] - seg["start"] - 0.3)) > -40
+    assert abs(probe(mp4).duration - timeline["duration"]) < 0.15
+
+
+def test_crop_zoom_and_position(project: Project):
+    src = WORK_DIR / "halves.mp4"
+    run_ffmpeg(["-f", "lavfi", "-i", "color=c=0xc81e1e:s=1280x720:r=25:d=2",
+                "-vf", "drawbox=x=640:y=0:w=640:h=720:color=0x1e1ec8:t=fill",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", str(src)])
+    clip = downloader.public_clip(downloader.register_upload("halves.mp4", src))
+    centre = (W // 2, BAND_H + (1920 - BAND_H) // 2)
+    seen = {}
+    for pan_x in (0.0, 1.0):
+        p = project.model_copy(deep=True)
+        p.settings.fit_mode = "fill"
+        for s in p.slots:
+            s.clip, s.start, s.end, s.zoom, s.pan_x = clip, None, None, 2.0, pan_x
+        mp4 = _output(render(p))
+        seen[pan_x] = frame_at(mp4, 0.5).getpixel(centre)
+    assert close(seen[0.0], (200, 30, 30)) and close(seen[1.0], (30, 30, 200))
