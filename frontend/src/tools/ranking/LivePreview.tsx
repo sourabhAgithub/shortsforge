@@ -79,7 +79,12 @@ export default function LivePreview({ project }: { project: Project }) {
         const own = s.audio_mode !== "external" && !x.slot.mute;
         v.muted = !own;
         v.volume = Math.min(1, s.original_volume);
-        if (playing && v.paused) v.play().catch(() => {});
+        if (playing && v.paused)
+          v.play().catch(() => {
+            // A phone that blocks sound without a tap: keep the picture moving, muted.
+            v.muted = true;
+            v.play().catch(() => {});
+          });
         if (!playing && !v.paused) v.pause();
       } else {
         if (!v.paused) v.pause();
@@ -115,6 +120,24 @@ export default function LivePreview({ project }: { project: Project }) {
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+  }
+
+  function togglePlay() {
+    if (!playing) {
+      // Phones (iPhone Safari) only allow sound on media started by a tap, so start and stop every
+      // clip and the track inside this tap; the clock then plays each one in turn.
+      [...videos.current.entries()].forEach(([slotId, m]) => {
+        if (slotId !== seg?.slot.id && m.paused)
+          m.play().then(
+            () => m.pause(),
+            () => {},
+          );
+      });
+      // The track starts right away (the clock keeps it in step), still inside the tap.
+      const a = music.current;
+      if (a && s.audio_mode !== "original") a.play().catch(() => {});
+    }
+    setPlaying((v) => !v);
   }
 
   const jump = (v: number) => {
@@ -196,7 +219,7 @@ export default function LivePreview({ project }: { project: Project }) {
       <div className="w-full min-w-0 flex-1">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setPlaying((v) => !v)}
+            onClick={togglePlay}
             disabled={total <= 0}
             className="grid size-11 shrink-0 place-items-center rounded-full bg-brand text-white hover:brightness-110 disabled:opacity-40"
             title={playing ? "Pause" : "Play"}
