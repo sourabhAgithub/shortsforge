@@ -359,3 +359,17 @@ def test_parse_scene_column_and_number_words():
 def test_parse_scene_column_as_visuals_when_alone():
     scenes = parse_table("| Time | Voiceover | Scene |\n|---|---|---|\n| 0-3s | Hello there | Castle, “Hi” |\n")
     assert scenes[0].prompt == "Castle" and scenes[0].label == "Hi"
+
+
+def test_labels_off_for_whole_video():
+    ensure_dirs()
+    p = AiProject()
+    d = ft.project_dir(p.id)
+    run_ffmpeg(["-f", "lavfi", "-i", "sine=duration=2", "-c:a", "libmp3lame", str(d / "vo.mp3")])
+    p.voiceover = MediaFile(file="vo.mp3", duration=2)
+    p.scenes = [Scene(voiceover="a", label="SHOWN")]
+    p.settings.footage_source = "uploads"
+    p.settings.captions = p.settings.whoosh = p.settings.ranking = p.settings.labels = False
+    mp4 = Path(ft.AIVIDEO_DIR).parent / "outputs" / f"{render(p)['id']}.mp4"
+    label_box = (100, LABEL_CY - 60, 980, LABEL_CY + 60)
+    assert count(frame_at(mp4, 1.0), label_box, lambda px: min(px) > 225) == 0

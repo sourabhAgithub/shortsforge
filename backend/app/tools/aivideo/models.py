@@ -55,6 +55,7 @@ class Scene(BaseModel):
 
 class AiSettings(BaseModel):
     captions: bool = True
+    labels: bool = True  # False = no on-screen labels anywhere in the video
     ranking: bool = True
     whoosh: bool = True
     music_volume: float = 0.12

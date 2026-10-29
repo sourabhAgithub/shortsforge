@@ -17,7 +17,10 @@ type Props = {
   count: number;
   timing: [number, number] | null;
   uploading: boolean;
-  rankingOn: boolean; // the whole-video "Ranking list" setting
+  // Whole-video settings: when off, the scene's own switches don't apply.
+  rankingOn: boolean;
+  labelsOn: boolean;
+  captionsOn: boolean;
   onChange: (patch: Partial<Scene>) => void;
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
@@ -36,6 +39,8 @@ export default function SceneRow({
   timing,
   uploading,
   rankingOn,
+  labelsOn,
+  captionsOn,
   onChange,
   onRemove,
   onMove,
@@ -158,14 +163,20 @@ export default function SceneRow({
         </div>
         <div className="flex items-center justify-between">
           <span className="label mb-0">Voiceover (captions)</span>
-          <label className="flex items-center gap-2 text-[11px] text-muted">
-            Show captions
-            <Switch
-              on={scene.show_captions !== false}
-              onChange={(v) => onChange({ show_captions: v })}
-              label="Show captions for this scene"
-            />
-          </label>
+          {captionsOn ? (
+            <label className="flex items-center gap-2 text-[11px] text-muted">
+              Show captions
+              <Switch
+                on={scene.show_captions !== false}
+                onChange={(v) => onChange({ show_captions: v })}
+                label="Show captions for this scene"
+              />
+            </label>
+          ) : (
+            <span className="text-[11px] text-muted">
+              Captions off for the whole video
+            </span>
+          )}
         </div>
         <textarea
           value={scene.voiceover}
@@ -178,20 +189,26 @@ export default function SceneRow({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="label mb-0">On-screen label</span>
-              <label className="flex items-center gap-2 text-[11px] text-muted">
-                Show
-                <Switch
-                  on={scene.show_label !== false}
-                  onChange={(v) => onChange({ show_label: v })}
-                  label="Show the label in this scene"
-                />
-              </label>
+              {labelsOn ? (
+                <label className="flex items-center gap-2 text-[11px] text-muted">
+                  Show
+                  <Switch
+                    on={scene.show_label !== false}
+                    onChange={(v) => onChange({ show_label: v })}
+                    label="Show the label in this scene"
+                  />
+                </label>
+              ) : (
+                <span className="text-[11px] text-muted">
+                  Off for the whole video
+                </span>
+              )}
             </div>
             <input
               value={scene.label}
               onChange={(e) => onChange({ label: e.target.value })}
               placeholder='On-screen label, e.g. "61 km²"'
-              className="input"
+              className={`input ${labelsOn ? "" : "opacity-40"}`}
             />
             {scene.label.trim() && (
               <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">

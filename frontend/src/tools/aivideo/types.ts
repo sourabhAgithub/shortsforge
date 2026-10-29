@@ -58,6 +58,7 @@ export type Scene = {
 
 export type AiSettings = {
   captions: boolean;
+  labels: boolean;
   ranking: boolean;
   whoosh: boolean;
   music_volume: number;

@@ -279,7 +279,7 @@ def render(p: AiProject, job: Job | None = None) -> dict:
             label = None
             seg_start = starts[i] / FPS
             la, lb = label_window(scene, seg_start, seg_start + dur)
-            label_img = label_image(scene.label) if scene.show_label and lb - la > 0.05 else None
+            label_img = label_image(scene.label) if p.settings.labels and scene.show_label and lb - la > 0.05 else None
             if label_img:
                 label_png = work / f"label_{i}.png"
                 label_img.save(label_png)

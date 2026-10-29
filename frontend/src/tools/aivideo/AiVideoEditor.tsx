@@ -570,22 +570,38 @@ export default function AiVideoEditor() {
             </div>
           ) : (
             <div>
-              <div className="mb-3 flex items-center gap-3 rounded-xl bg-ink px-4 py-3 ring-1 ring-line">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold">
-                    Ranking list in this video
-                  </p>
-                  <p className="text-xs text-muted">
-                    {s.ranking
-                      ? "Shown in every scene unless you turn it off in that scene."
-                      : "Off for every scene. Ranks below are ignored."}
-                  </p>
+              <div className="mb-3 rounded-xl bg-ink px-4 py-3 ring-1 ring-line">
+                <p className="text-sm font-semibold">Whole video</p>
+                <p className="text-xs text-muted">
+                  Turn something off here to remove it from every scene. When
+                  it's on, each scene can still hide it with its own switch.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {(
+                    [
+                      ["captions", "Captions"],
+                      ["labels", "On-screen labels"],
+                      ["ranking", "Ranking list"],
+                    ] as const
+                  ).map(([key, name]) => (
+                    <label
+                      key={key}
+                      className="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2 text-sm"
+                    >
+                      <span>
+                        {name}
+                        <span className="block text-[11px] text-muted">
+                          {s[key] !== false ? "On" : "Off in every scene"}
+                        </span>
+                      </span>
+                      <Switch
+                        on={s[key] !== false}
+                        onChange={(v) => patchSettings({ [key]: v })}
+                        label={`${name} in this video`}
+                      />
+                    </label>
+                  ))}
                 </div>
-                <Switch
-                  on={s.ranking}
-                  onChange={(ranking) => patchSettings({ ranking })}
-                  label="Ranking list in this video"
-                />
               </div>
               {!project.voiceover && project.scenes.length > 0 && (
                 <p className="mb-3 text-xs text-muted">
@@ -603,6 +619,8 @@ export default function AiVideoEditor() {
                     timing={timings[i] ?? null}
                     uploading={!!uploading[scene.id]}
                     rankingOn={s.ranking}
+                    labelsOn={s.labels !== false}
+                    captionsOn={s.captions}
                     onChange={(p) => patchScene(scene.id, p)}
                     onRemove={() =>
                       update((pr) => ({
@@ -684,12 +702,18 @@ export default function AiVideoEditor() {
               />
             </div>
           )}
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <Toggle
               label="Captions"
               hint="2–4 words at a time"
               on={s.captions}
               onChange={(captions) => patchSettings({ captions })}
+            />
+            <Toggle
+              label="On-screen labels"
+              hint="Big text box, whole video"
+              on={s.labels !== false}
+              onChange={(labels) => patchSettings({ labels })}
             />
             <Toggle
               label="Ranking list"

@@ -367,7 +367,12 @@ export default function PreviewPanel({
             <div className="relative mt-1 h-9 rounded-lg bg-ink ring-1 ring-line">
               {timings.map(([a, b], i) => {
                 const sc = project.scenes[i];
-                if (!sc.label.trim() || sc.show_label === false) return null;
+                if (
+                  !sc.label.trim() ||
+                  sc.show_label === false ||
+                  s.labels === false
+                )
+                  return null;
                 const [l0, l1] = labelWindow(sc, a, b);
                 const custom = sc.label_start !== null || sc.label_end !== null;
                 return (
@@ -470,14 +475,18 @@ export default function PreviewPanel({
                     </button>
                   )}
                   <div className="ml-auto flex items-center gap-4">
-                    <label className="flex items-center gap-2 text-xs text-muted">
-                      Show label
-                      <Switch
-                        on={sc.show_label !== false}
-                        onChange={(v) => patchScene(current, { show_label: v })}
-                        label="Show the label in this scene"
-                      />
-                    </label>
+                    {s.labels !== false && (
+                      <label className="flex items-center gap-2 text-xs text-muted">
+                        Show label
+                        <Switch
+                          on={sc.show_label !== false}
+                          onChange={(v) =>
+                            patchScene(current, { show_label: v })
+                          }
+                          label="Show the label in this scene"
+                        />
+                      </label>
+                    )}
                     {s.ranking && (
                       <label className="flex items-center gap-2 text-xs text-muted">
                         Show ranking list
