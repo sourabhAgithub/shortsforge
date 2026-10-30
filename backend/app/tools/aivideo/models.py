@@ -56,6 +56,7 @@ class Scene(BaseModel):
 
 
 class AiSettings(BaseModel):
+    title: bool = True  # False = no title banner; footage fills the whole frame
     captions: bool = True
     labels: bool = True  # False = no on-screen labels anywhere in the video
     ranking: bool = True

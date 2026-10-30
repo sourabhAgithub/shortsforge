@@ -71,6 +71,7 @@ export type Scene = {
 };
 
 export type AiSettings = {
+  title: boolean; // false = no title banner; footage fills the whole frame
   captions: boolean;
   labels: boolean;
   ranking: boolean;

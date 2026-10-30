@@ -20,6 +20,13 @@ COPY assets/ assets/
 COPY --from=ui /ui/dist frontend/dist
 
 ENV PYTHONUNBUFFERED=1 SHORTSFORGE_DATA=/app/data PORT=8000
+# Auto-sync's speech model. "tiny" fits in a 512 MB server ("base", the local default, doesn't),
+# and it's built into the image so it isn't downloaded again after every deploy or restart.
+ENV WHISPER_MODEL=tiny
+# 512 MB servers: cap FFmpeg / speech-model threads (they default to the host's core count, each
+# with its own frame buffers) and limit glibc's per-thread memory arenas.
+ENV FFMPEG_THREADS=2 MALLOC_ARENA_MAX=2
+RUN python -c "from faster_whisper.utils import download_model; download_model('tiny', cache_dir='/app/data/models')"
 WORKDIR /app/backend
 # One worker: render and download jobs are tracked in this process's memory.
 CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips="*"

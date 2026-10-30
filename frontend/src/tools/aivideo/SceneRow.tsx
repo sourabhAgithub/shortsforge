@@ -1,17 +1,20 @@
 import {
   ArrowDown,
   ArrowUp,
+  Eraser,
   ImagePlus,
   Loader2,
   Trash2,
   X,
 } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import Switch from "../../components/Switch";
 import { MEDALS } from "../ranking/layout";
 import { type Fit, FITS, MOTIONS, type Motion, type Scene } from "./types";
+import WatermarkDialog from "./WatermarkDialog";
 
 type Props = {
+  projectId: string;
   scene: Scene;
   index: number;
   count: number;
@@ -33,6 +36,7 @@ function num(v: string): number | null {
 }
 
 export default function SceneRow({
+  projectId,
   scene,
   index,
   count,
@@ -47,6 +51,7 @@ export default function SceneRow({
   onUpload,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [cleaning, setCleaning] = useState(false);
   const medal = scene.rank ? MEDALS[scene.rank] : undefined;
   return (
     <div className="card flex flex-col gap-3 p-3 sm:flex-row sm:gap-4 sm:p-4">
@@ -94,6 +99,15 @@ export default function SceneRow({
               </span>
             )}
           </button>
+          {scene.upload?.kind === "image" && (
+            <button
+              onClick={() => setCleaning(true)}
+              className="inline-flex items-center justify-center gap-1 text-[11px] text-sky hover:text-white"
+              title="Remove a watermark or logo (like Gemini's sparkle) from this photo"
+            >
+              <Eraser className="size-3" /> Watermark
+            </button>
+          )}
           {scene.upload ? (
             <button
               onClick={() => onChange({ upload: null, footage: null })}
@@ -105,6 +119,17 @@ export default function SceneRow({
             <span className="text-[10px] leading-tight text-muted/60 sm:text-center">
               Own media (optional)
             </span>
+          )}
+          {cleaning && scene.upload && (
+            <WatermarkDialog
+              projectId={projectId}
+              photo={scene.upload}
+              onApply={(f) => {
+                onChange({ upload: f, footage: f });
+                setCleaning(false);
+              }}
+              onClose={() => setCleaning(false)}
+            />
           )}
           <input
             ref={fileRef}

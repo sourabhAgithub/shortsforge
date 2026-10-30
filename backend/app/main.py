@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from . import downloader, jobs, settings, videos
 from .config import (AIVIDEO_DIR, APP_NAME, ASSETS_DIR, DOWNLOADS_DIR, FRONTEND_DIST, OUTPUTS_DIR,
-                     RANKING_DIR,
+                     RANKING_DIR, VIDEOGEN_DIR, VOICEOVER_DIR,
                      WORK_DIR, ensure_dirs)
 from .ffmpeg_util import ffmpeg_exe
 from .tools import TOOL_ROUTERS
@@ -154,6 +154,8 @@ app.mount("/media/downloads", StaticFiles(directory=DOWNLOADS_DIR), name="downlo
 app.mount("/media/outputs", StaticFiles(directory=OUTPUTS_DIR), name="outputs")
 app.mount("/media/aivideo", StaticFiles(directory=AIVIDEO_DIR), name="aivideo")
 app.mount("/media/ranking", StaticFiles(directory=RANKING_DIR), name="ranking")
+app.mount("/media/videogen", StaticFiles(directory=VIDEOGEN_DIR), name="videogen")
+app.mount("/media/voiceover", StaticFiles(directory=VOICEOVER_DIR), name="voiceover")
 app.mount("/fonts", StaticFiles(directory=ASSETS_DIR / "fonts"), name="fonts")
 
 if (FRONTEND_DIST / "assets").exists():

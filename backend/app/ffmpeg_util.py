@@ -56,6 +56,12 @@ def ffmpeg_dir_for_ytdlp() -> str:
 
 def run_ffmpeg(args: list[str], timeout: float | None = None) -> str:
     cmd = [ffmpeg_exe(), "-hide_banner", "-nostdin", "-y", *args]
+    # FFMPEG_THREADS caps threads on small servers: by default FFmpeg starts one per CPU core of
+    # the host, each holding its own full-size frames, which overflows a 512 MB plan.
+    threads = os.environ.get("FFMPEG_THREADS")
+    if threads:  # every call ends with the output file; -threads must sit right before it
+        cmd = [*cmd[:4], "-filter_complex_threads", threads, "-filter_threads", threads,
+               *cmd[4:-1], "-threads", threads, cmd[-1]]
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     proc = subprocess.run(
         cmd, capture_output=True, text=True, errors="replace", timeout=timeout,

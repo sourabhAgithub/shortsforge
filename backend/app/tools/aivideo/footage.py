@@ -250,6 +250,50 @@ def save_upload(project_id: str, filename: str, src: Path) -> Footage:
         raise UserError("That file couldn't be opened. Try a different image or video.") from None
 
 
+def clean_image(project_id: str, name: str, box: tuple[float, float, float, float]) -> Footage:
+    """Paint over a watermark or logo inside `box` (x, y, w, h as fractions of the image) and save
+    the result as a new upload; the original file is kept so the change can be undone.
+
+    The box is filled from its surroundings first; pixels that differ a lot from that fill are the
+    mark itself, and only those (slightly widened) are painted, so the rest of the box keeps its
+    real detail. If nothing stands out, the whole box is painted.
+    """
+    import cv2
+    import numpy as np
+
+    src = project_dir(project_id) / name
+    if not re.fullmatch(r"[\w.-]+", name) or src.suffix.lower() not in IMAGE_EXTS or not src.exists():
+        raise UserError("That photo isn't in this project any more. Upload it again.")
+    img = cv2.imread(str(src))
+    if img is None:
+        raise UserError("That photo couldn't be opened.")
+    h, w = img.shape[:2]
+    x, y, bw, bh = box
+    x0, y0 = max(0, round(x * w)), max(0, round(y * h))
+    x1, y1 = min(w, round((x + bw) * w)), min(h, round((y + bh) * h))
+    if x1 - x0 < 3 or y1 - y0 < 3:
+        raise UserError("Draw a bigger box around the watermark.")
+    area = np.zeros((h, w), np.uint8)
+    area[y0:y1, x0:x1] = 255
+
+    fill = cv2.inpaint(img, area, 5, cv2.INPAINT_TELEA)
+    mark = ((cv2.absdiff(img, fill).max(axis=2) > 28) & (area > 0)).astype(np.uint8) * 255
+    mark = cv2.dilate(mark, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=2) & area
+    if cv2.countNonZero(mark) < 0.02 * cv2.countNonZero(area):
+        mark = area
+    out = cv2.inpaint(img, mark, 4, cv2.INPAINT_TELEA)
+    # The fill is perfectly smooth; add grain like the photo's around the box so it blends in.
+    near = cv2.dilate(area, np.ones((41, 41), np.uint8)) & ~area
+    grain = (img.astype(np.float32) - cv2.GaussianBlur(img, (0, 0), 2).astype(np.float32))[near > 0].std()
+    noise = np.random.default_rng(0).normal(0, grain, img.shape).astype(np.float32)
+    painted = mark > 0
+    out[painted] = np.clip(out[painted].astype(np.float32) + noise[painted], 0, 255).astype(np.uint8)
+
+    dest = project_dir(project_id) / f"upload_{uuid.uuid4().hex[:8]}.jpg"
+    cv2.imwrite(str(dest), out, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    return _finish(project_id, dest, "image", "upload")
+
+
 def remove_footage(project_id: str, f: Footage | None) -> None:
     """Delete generated footage files we no longer need (never the user's uploads)."""
     if not f or f.source == "upload":

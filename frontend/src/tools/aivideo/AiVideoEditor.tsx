@@ -9,7 +9,6 @@ import {
   Loader2,
   Music,
   Plus,
-  Upload,
   Wand2,
   X,
 } from "lucide-react";
@@ -29,6 +28,7 @@ import {
   waitForJob,
 } from "../../api";
 import RenderDialog, { type RenderState } from "../../components/RenderDialog";
+import FileButton from "../../components/FileButton";
 import Section from "../../components/Section";
 import Switch from "../../components/Switch";
 import FootagePanel from "./FootagePanel";
@@ -51,47 +51,6 @@ const SAMPLE = `| Time | Voiceover | On screen |
 |---|---|---|
 | 0–3s | Ranking the smallest countries in the world. | Spinning globe zooming in, big text "Smallest countries 🌍" |
 | 3–11s | #5 San Marino: 61 km², founded in 301 AD | Hilltop castle in the clouds, label "61 km²" |`;
-
-function FileButton({
-  accept,
-  busy,
-  label,
-  onFile,
-}: {
-  accept: string;
-  busy: boolean;
-  label: string;
-  onFile: (f: File) => void;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  return (
-    <>
-      <button
-        onClick={() => ref.current?.click()}
-        disabled={busy}
-        className="btn-ghost"
-      >
-        {busy ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          <Upload className="size-4" />
-        )}{" "}
-        {label}
-      </button>
-      <input
-        ref={ref}
-        type="file"
-        accept={accept}
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onFile(f);
-          e.target.value = "";
-        }}
-      />
-    </>
-  );
-}
 
 function Toggle({
   label,
@@ -333,9 +292,11 @@ export default function AiVideoEditor() {
     if (!latest.current) return;
     setSyncing(true);
     setError("sync", "");
+    setError("syncNote", "");
     try {
       type Synced = {
         scenes: { id: string; start: number; end: number; captions: Cue[] }[];
+        unmatched: number[]; // scenes whose script mostly isn't in the voiceover
       };
       const job = await api<Job<Synced>>(`/api/aivideo/projects/${id}/sync`, {
         method: "POST",
@@ -352,11 +313,18 @@ export default function AiVideoEditor() {
                 ...sc,
                 start: r.start,
                 end: r.end,
-                captions: r.captions.length ? r.captions : null,
+                // Empty = nothing is said in this scene, so no captions.
+                captions: r.captions,
               }
             : sc;
         }),
       }));
+      const n = (res.unmatched ?? []).map((i) => i + 1);
+      if (n.length)
+        setError(
+          "syncNote",
+          `${n.length === 1 ? "Scene" : "Scenes"} ${n.join(", ")}: the voiceover doesn't say the script's words, so ${n.length === 1 ? "its captions show" : "their captions show"} what is actually said (or nothing, if nothing is said). Edit the script to match the audio and sync again for exact scene cuts.`,
+        );
     } catch (e) {
       setError("sync", (e as Error).message);
     } finally {
@@ -443,7 +411,7 @@ export default function AiVideoEditor() {
         </Link>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold tracking-wider text-sky uppercase">
-            AI Video Generator
+            Multiple Clip Generator
           </p>
           <h1 className="text-xl font-black tracking-tight break-words sm:text-2xl">
             {project.title || "Untitled video"}
@@ -469,23 +437,40 @@ export default function AiVideoEditor() {
       </div>
 
       <div className="space-y-5">
-        <Section n={1} title="Title">
-          <input
-            value={project.title}
-            onChange={(e) => patch({ title: e.target.value })}
-            placeholder="Type your video title, e.g. Smallest Countries In The World"
-            className="input font-title text-lg tracking-wide placeholder:font-sans placeholder:text-sm placeholder:tracking-normal placeholder:italic"
-          />
-          <p className="mt-2 text-xs text-muted">
-            Shown in a bold banner at the top for the whole video.
-          </p>
-          <TitleColors
-            title={project.title}
-            color={project.title_color ?? "#FFFFFF"}
-            highlights={project.title_highlights ?? {}}
-            onColor={(title_color) => patch({ title_color })}
-            onHighlights={(title_highlights) => patch({ title_highlights })}
-          />
+        <Section
+          n={1}
+          title="Title"
+          aside={
+            <label className="flex items-center gap-2 text-xs text-muted">
+              {s.title !== false ? "Shown in video" : "Hidden"}
+              <Switch
+                on={s.title !== false}
+                onChange={(title) => patchSettings({ title })}
+                label="Show the title in the video"
+              />
+            </label>
+          }
+        >
+          <div className={s.title === false ? "opacity-50" : ""}>
+            <input
+              value={project.title}
+              onChange={(e) => patch({ title: e.target.value })}
+              placeholder="Type your video title, e.g. Smallest Countries In The World"
+              className="input font-title text-lg tracking-wide placeholder:font-sans placeholder:text-sm placeholder:tracking-normal placeholder:italic"
+            />
+            <p className="mt-2 text-xs text-muted">
+              {s.title !== false
+                ? "Shown in a bold banner at the top for the whole video."
+                : "Hidden: no banner, and the footage fills the whole frame. The title still names the video in My Videos."}
+            </p>
+            <TitleColors
+              title={project.title}
+              color={project.title_color ?? "#FFFFFF"}
+              highlights={project.title_highlights ?? {}}
+              onColor={(title_color) => patch({ title_color })}
+              onHighlights={(title_highlights) => patch({ title_highlights })}
+            />
+          </div>
         </Section>
 
         <Section n={2} title="Voiceover">
@@ -621,6 +606,7 @@ export default function AiVideoEditor() {
                 {project.scenes.map((scene, i) => (
                   <SceneRow
                     key={scene.id}
+                    projectId={project.id}
                     scene={scene}
                     index={i}
                     count={project.scenes.length}
@@ -747,6 +733,7 @@ export default function AiVideoEditor() {
             syncJob={syncJob}
             syncing={syncing}
             syncError={errors.sync ?? ""}
+            syncNote={errors.syncNote ?? ""}
           />
         </Section>
 

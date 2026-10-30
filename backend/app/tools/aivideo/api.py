@@ -144,6 +144,20 @@ def upload_scene_media(project_id: str, file: UploadFile) -> dict:
         raise HTTPException(400, str(e)) from None
 
 
+class CleanRequest(BaseModel):
+    file: str
+    box: tuple[float, float, float, float]  # x, y, w, h as fractions of the image
+
+
+@router.post("/projects/{project_id}/clean-image")
+def clean_image(project_id: str, req: CleanRequest) -> dict:
+    """Remove a watermark or logo from an uploaded photo (returns the cleaned copy)."""
+    try:
+        return ft.clean_image(project_id, req.file, req.box).model_dump()
+    except jobs.UserError as e:
+        raise HTTPException(400, str(e)) from None
+
+
 class FootageRequest(BaseModel):
     project: AiProject
     scene_ids: list[str] | None = None  # None = every scene without footage
@@ -183,10 +197,10 @@ def auto_sync(project_id: str, p: AiProject) -> dict:
     def work(job: jobs.Job) -> dict:
         heard = transcribe(voice, job)
         job.update(0.9, "Matching words to scenes…")
-        scenes = sync_scenes(p.scenes, heard, probe(voice).duration)
+        scenes, unmatched = sync_scenes(p.scenes, heard, probe(voice).duration)
         return {"scenes": [{"id": s.id, "start": s.start, "end": s.end,
                             "captions": [c.model_dump() for c in s.captions or []]} for s in scenes],
-                "heard": " ".join(w for w, _, _ in heard)}
+                "heard": " ".join(w for w, _, _ in heard), "unmatched": unmatched}
 
     return jobs.submit("sync", work, pool="footage").to_dict()
 

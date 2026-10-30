@@ -12,9 +12,12 @@ import {
   Scissors,
   Sparkles,
   Trophy,
+  Video,
 } from "lucide-react";
 import AiVideoTool from "./aivideo/AiVideoTool";
 import RankingTool from "./ranking/RankingTool";
+import VideoGenTool from "./videogen/VideoGenTool";
+import VoiceoverTool from "./voiceover/VoiceoverTool";
 
 /**
  * Every tool in the app. To add one: make a folder next to `ranking/` with a component that
@@ -45,13 +48,33 @@ export const TOOLS: ToolDef[] = [
   },
   {
     id: "aivideo",
-    name: "AI Video Generator",
+    name: "Multiple Clip Generator",
     description: "Generate footage from a text prompt.",
     icon: Clapperboard,
     group: "Create",
     status: "ready",
     cta: "Start Generating",
     component: AiVideoTool,
+  },
+  {
+    id: "videogen",
+    name: "Video Generator",
+    description: "Edit one video: its sound, your own audio, captions and text anywhere.",
+    icon: Video,
+    group: "Create",
+    status: "ready",
+    cta: "Start Editing",
+    component: VideoGenTool,
+  },
+  {
+    id: "voiceover",
+    name: "Voice Generator",
+    description: "Turn a script into an MP3 in 70+ languages and hundreds of voices.",
+    icon: AudioLines,
+    group: "Create",
+    status: "ready",
+    cta: "Start Voicing",
+    component: VoiceoverTool,
   },
   {
     id: "commentary",
@@ -107,14 +130,6 @@ export const TOOLS: ToolDef[] = [
     description: "Find the most engaging moments in your footage.",
     icon: Sparkles,
     group: "Edit & automate",
-    status: "soon",
-  },
-  {
-    id: "voiceover",
-    name: "AI Voiceover",
-    description: "Narrate any script without recording yourself.",
-    icon: AudioLines,
-    group: "Voice & text",
     status: "soon",
   },
   {

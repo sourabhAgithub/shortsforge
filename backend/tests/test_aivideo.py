@@ -181,9 +181,45 @@ def test_align_handles_spoken_numbers_and_gaps():
     assert 4.8 <= t[4][0] < t[4][1] <= 6.0  # "km²" interpolated between neighbours
     scenes = [Scene(voiceover="Intro words here"), Scene(voiceover=" ".join(script))]
     heard = [("Intro", 0.2, 0.5), ("words", 0.5, 0.8), ("here", 0.8, 1.0)] + heard
-    out = sync_scenes(scenes, heard, 10.0)
+    out, unmatched = sync_scenes(scenes, heard, 10.0)
     assert out[0].start == 0 and abs(out[1].start - 3.0) < 0.01 and out[1].end == 10.0
     assert out[1].captions[0].text == "#5 San Marino:" and abs(out[1].captions[0].start - 3.1) < 0.01
+    assert unmatched == []
+
+
+def _words(text: str, start: float, step: float = 0.4) -> list[tuple[str, float, float]]:
+    return [(w, start + k * step, start + k * step + 0.3) for k, w in enumerate(text.split())]
+
+
+def test_sync_captions_follow_the_voice_when_it_differs_from_the_script():
+    from app.tools.aivideo.sync import sync_scenes
+    scenes = [Scene(voiceover="I've never told anyone this story before tonight."),
+              Scene(voiceover="When I was fifteen we went to our ancestral home in India."),
+              Scene(voiceover="Dadi was at the market that day.")]
+    # Scene 1's line is never said; scene 2 is said with different words in the middle;
+    # "Dadi" is misheard as "Daddy".
+    heard = (_words("When I was 15, my friend greeted my grandmother in our kitchen.", 0.5)
+             + _words("We were at our ancestral home in India.", 6.0)
+             + _words("Daddy was at the market that day.", 10.0))
+    out, unmatched = sync_scenes(scenes, heard, 14.0)
+    assert unmatched == [0]
+    assert out[0].captions == []  # nothing of scene 1 is spoken: no captions for it
+    text = " ".join(c.text for c in out[1].captions)
+    assert "my friend greeted my grandmother in our kitchen." in text  # what was actually said
+    assert text.startswith("When I was fifteen") and "ancestral home in India." in text
+    assert out[2].captions[0].text.startswith("Dadi was")  # script spelling for a misheard word
+    assert abs(out[2].start - 9.9) < 0.01
+    for s in out[1:]:  # every caption sits on its spoken words
+        for c in s.captions:
+            assert any(abs(c.start - w[1]) < 0.01 for w in heard)
+
+
+def test_sync_captions_hide_during_long_pauses():
+    from app.tools.aivideo.sync import sync_scenes
+    heard = _words("one two three", 0.0) + _words("four five six", 5.0)
+    out, _ = sync_scenes([Scene(voiceover="one two three four five six")], heard, 8.0)
+    a, b = out[0].captions
+    assert (a.start, b.start) == (0.0, 5.0) and a.end == round(0.8 + 0.3 + 0.3, 2) and b.end < 8.0
 
 
 def test_manual_captions_are_used_and_clipped():
@@ -385,3 +421,47 @@ def test_title_color_and_highlighted_words():
     assert count(img, left, is_red) > 500 and count(img, left, is_blue) == 0
     assert count(img, right, is_blue) > 500 and count(img, right, is_red) == 0
     assert AiProject().title_color == "#FFFFFF"  # old projects stay white
+
+
+@pytest.mark.parametrize("title_on", [True, False])
+def test_title_banner_can_be_switched_off(title_on):
+    ensure_dirs()
+    p = AiProject(title="Hidden Or Shown")
+    d = ft.project_dir(p.id)
+    run_ffmpeg(["-f", "lavfi", "-i", "sine=duration=2", "-c:a", "libmp3lame", str(d / "vo.mp3")])
+    p.voiceover = MediaFile(file="vo.mp3", duration=2)
+    src = WORK_DIR / f"green_{title_on}.png"
+    Image.new("RGB", (900, 1600), (30, 160, 60)).save(src)
+    p.scenes = [Scene(voiceover="hi", upload=ft.save_upload(p.id, "g.png", src), motion="still")]
+    p.settings.footage_source = "uploads"
+    p.settings.captions = p.settings.ranking = p.settings.whoosh = False
+    p.settings.title = title_on
+    img = frame_at(Path(ft.AIVIDEO_DIR).parent / "outputs" / f"{render(p)['id']}.mp4", 1.0)
+    top = img.getpixel((10, 20))  # left edge of the banner, clear of the title text
+    if title_on:
+        assert max(top) < 30  # black banner
+    else:
+        assert top[1] > 120 and top[0] < 80  # footage reaches the top of the frame
+
+
+def test_clean_image_removes_a_corner_watermark():
+    import numpy as np
+    from PIL import ImageDraw
+    from app.jobs import UserError
+    ensure_dirs()
+    p = AiProject()
+    src = WORK_DIR / "wm.png"
+    img = Image.new("RGB", (800, 600), (40, 120, 90))
+    ImageDraw.Draw(img).polygon([(740, 510), (748, 532), (770, 540), (748, 548), (740, 570), (732, 548),
+                                 (710, 540), (732, 532)], fill=(255, 255, 255))  # sparkle
+    img.save(src)
+    up = ft.save_upload(p.id, "wm.png", src)
+    clean = ft.clean_image(p.id, up.file, (680 / 800, 480 / 600, 110 / 800, 110 / 600))
+    assert clean.file != up.file and (ft.project_dir(p.id) / up.file).exists()  # original kept for undo
+    px = np.asarray(Image.open(ft.project_dir(p.id) / clean.file).convert("RGB")).astype(int)
+    assert np.abs(px[515:565, 715:765] - (40, 120, 90)).max() < 30  # sparkle painted out
+    assert np.abs(px[100:200, 100:200] - (40, 120, 90)).max() < 8  # rest untouched
+    with pytest.raises(UserError):
+        ft.clean_image(p.id, "../../secret.jpg", (0, 0, 0.5, 0.5))
+    with pytest.raises(UserError):
+        ft.clean_image(p.id, up.file, (0.5, 0.5, 0.001, 0.001))

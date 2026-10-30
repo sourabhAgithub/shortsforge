@@ -64,9 +64,10 @@ def fill_footage(p: AiProject, indexes: list[int], job: Job | None, lo: float, h
     return done
 
 
-def area_height(fit: str) -> int:
-    """Height of the footage area: below the title banner, or the whole frame for full screen."""
-    return H if fit == "fullscreen" else AREA_H
+def area_height(fit: str, banner: bool = True) -> int:
+    """Height of the footage area: below the title banner, or the whole frame for full screen
+    or when the title is switched off."""
+    return AREA_H if banner and fit != "fullscreen" else H
 
 
 def _footage_input(f: Footage, path: Path | None, index: int, dur: float, area_h: int) -> list[str]:
@@ -103,8 +104,8 @@ def _frame(src: str, fit: str, w: int, h: int, out: str) -> str:
 
 
 def _footage_filter(f: Footage, index: int, frames: int, motion: str = "auto",
-                    fit: str = "fill") -> str:
-    area_h = area_height(fit)
+                    fit: str = "fill", banner: bool = True) -> str:
+    area_h = area_height(fit, banner)
     if f.kind == "video":
         return _frame(f"[0:v]fps={FPS},", fit, W, area_h, "[fg]")
     if f.kind == "image":
@@ -134,9 +135,9 @@ def render_segment(p: AiProject, index: int, frames: int, base_png: Path,
     f = scene.footage
     dur = frames / FPS
     path = ft.project_dir(p.id) / f.file if f.file else None
-    area_h = area_height(scene.fit)
+    area_h = area_height(scene.fit, p.settings.title)
     args = _footage_input(f, path, index, dur, area_h) + ["-i", str(base_png)]
-    graph = [_footage_filter(f, index, frames, scene.motion, scene.fit),
+    graph = [_footage_filter(f, index, frames, scene.motion, scene.fit, p.settings.title),
              f"[fg]pad={W}:{H}:0:{H - area_h}:black[s0]", "[s0][1:v]overlay=0:0[s1]"]
     last, n_in = "s1", 2
     if label:
@@ -275,7 +276,7 @@ def render(p: AiProject, job: Job | None = None) -> dict:
             base = work / f"base_{i}.png"
             base_overlay(p.title, ranks, set(revealed), scene.rank,
                          p.settings.ranking and scene.show_ranks,
-                         show_banner=scene.fit != "fullscreen", title_color=p.title_color,
+                         show_banner=p.settings.title and scene.fit != "fullscreen", title_color=p.title_color,
                          title_highlights=p.title_highlights).save(base)
             label = None
             seg_start = starts[i] / FPS

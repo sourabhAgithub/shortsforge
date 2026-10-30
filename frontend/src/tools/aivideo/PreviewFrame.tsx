@@ -29,7 +29,7 @@ import {
 const stroke = (size: number, ratio = 0.09) =>
   Math.max(3, Math.round(size * ratio));
 
-function fit(
+export function fit(
   text: string,
   maxW: number,
   maxSize: number,
@@ -43,7 +43,7 @@ function fit(
 }
 
 /** One or two balanced lines plus a font size, like wrap_balanced() + fit_size() in Python. */
-function lines(
+export function lines(
   text: string,
   maxW: number,
   maxOne: number,
@@ -64,7 +64,7 @@ function lines(
   return [best, Math.min(...best.map((l) => fit(l, maxW, maxTwo)))];
 }
 
-function Outlined({
+export function Outlined({
   text,
   size,
   color = "#fff",
@@ -92,7 +92,7 @@ function Outlined({
 }
 
 /** Picture framed like the renderer's _frame(): crop to fill, or whole over blur / black. */
-function Framed({
+export function Framed({
   fit,
   children,
   blurSrc,
@@ -233,7 +233,8 @@ export default function PreviewFrame({
   const s = project.settings;
 
   const f = scene?.upload ?? scene?.footage ?? null;
-  const fullscreen = scene?.fit === "fullscreen";
+  // No banner: full-screen scenes, or the title switched off for the whole video.
+  const fullscreen = scene?.fit === "fullscreen" || s.title === false;
   const url = f?.file
     ? `/media/aivideo/${project.id}/${f.file}`
     : (f?.thumb ?? null);

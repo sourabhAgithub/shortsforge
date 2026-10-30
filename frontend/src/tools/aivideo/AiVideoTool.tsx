@@ -7,9 +7,9 @@ function AiVideoHome() {
   return (
     <ToolHome
       tool={{ id: "aivideo", icon: Clapperboard }}
-      heading="AI Video Generator"
+      heading="Multiple Clip Generator"
       blurb="Upload a voiceover, paste a scene-by-scene script, and get footage generated from each scene's description, cut into a finished Short with captions and a ranking list."
-      createLabel="Create AI Video"
+      createLabel="Create Multi-Clip Video"
       untitled="Untitled video"
       progress={(p) => `${p.filled}/${p.slots} scenes with footage`}
     />

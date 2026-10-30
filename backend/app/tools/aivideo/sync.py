@@ -5,6 +5,8 @@ Speech recognition runs locally with faster-whisper (free, offline after a one-t
 download into data/models). The recognised words won't match the script exactly ("#5" is
 spoken as "number five", "km²" as "square kilometers"), so the script words are aligned to the
 recognised words and any unmatched script words get times interpolated from their neighbours.
+Where the voiceover says something different from the script, the captions show what was
+actually said, so they always match the voice.
 """
 import difflib
 import os
@@ -47,6 +49,7 @@ def _load_model(job: Job | None):
                 job.update(0.05, "Downloading the speech model (first time only, about 140 MB)…")
             try:
                 _model = WhisperModel(name, device="cpu", compute_type="int8",
+                                      cpu_threads=int(os.environ.get("FFMPEG_THREADS", 0)),
                                       download_root=str(MODELS_DIR))
             except Exception:
                 raise UserError("Couldn't load the speech model. Check your internet connection "
@@ -56,7 +59,7 @@ def _load_model(job: Job | None):
 
 def _decode(path: Path):
     import numpy as np
-    raw = subprocess.run([ffmpeg_exe(), "-nostdin", "-i", str(path), "-f", "s16le", "-ac", "1",
+    raw = subprocess.run([ffmpeg_exe(), "-nostdin", "-i", str(path), "-vn", "-f", "s16le", "-ac", "1",
                           "-ar", "16000", "-"], capture_output=True,
                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
     if not raw:
@@ -68,22 +71,49 @@ def transcribe(path: Path, job: Job | None = None) -> list[tuple[str, float, flo
     model = _load_model(job)
     if job:
         job.update(0.3, "Listening to the voiceover…")
-    segments, _ = model.transcribe(_decode(path), word_timestamps=True)
-    return [(w.word.strip(), w.start, w.end) for s in segments for w in (s.words or [])]
+    # Greedy decoding without carrying context: much faster, and the script supplies the exact
+    # words anyway, so recognition only needs to be close enough to line up.
+    segments, info = model.transcribe(_decode(path), word_timestamps=True, beam_size=1,
+                                      condition_on_previous_text=False)
+    heard = []
+    for s in segments:  # a generator: recognition happens as it's read, so report progress here
+        heard += [(w.word.strip(), w.start, w.end) for w in (s.words or [])]
+        if job and info.duration:
+            done = min(s.end / info.duration, 1)
+            job.update(0.3 + 0.6 * done, f"Listening to the voiceover… {round(done * 100)}%")
+    return heard
 
 
-def align(script_words: list[str], heard: list[tuple[str, float, float]],
-          total: float) -> list[tuple[float, float]]:
+Word = tuple[str, float, float]  # (text, start, end)
+# A difference of up to this many words is a misheard word ("Dadi" heard as "Daddy"); more than
+# that means the voiceover says something the script doesn't (or the other way round).
+SLIP = 3
+
+
+def _diff(script_words: list[str], heard: list[Word]) -> list[tuple[str, int, int, int, int]]:
+    a = [norm(w) for w in script_words]
+    b = [norm(w) for w, _, _ in heard]
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes()
+
+
+def _same_words(tag: str, n: int, m: int) -> bool:
+    """Whether a diff block is the script's words as spoken (exactly, or slightly misheard)."""
+    return tag == "equal" or tag == "replace" and max(n, m) <= SLIP
+
+
+def align(script_words: list[str], heard: list[Word], total: float) -> list[tuple[float, float]]:
     """(start, end) for every script word."""
     n = len(script_words)
     times: list[tuple[float, float] | None] = [None] * n
-    a = [norm(w) for w in script_words]
-    b = [norm(w) for w, _, _ in heard]
-    for block in difflib.SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks():
-        for k in range(block.size):
-            _, s, e = heard[block.b + k]
-            times[block.a + k] = (s, e)
-    # Fill gaps by spreading unmatched words evenly between the matched neighbours.
+    for tag, i1, i2, j1, j2 in _diff(script_words, heard):
+        if tag not in ("equal", "replace"):
+            continue
+        # Spread the script words over the heard words in the same place (one to one if equal).
+        for k in range(i1, i2):
+            lo = j1 + (k - i1) * (j2 - j1) // (i2 - i1)
+            hi = max(lo, j1 + -(-(k - i1 + 1) * (j2 - j1) // (i2 - i1)) - 1)
+            times[k] = (heard[lo][1], heard[hi][2])
+    # Script words that weren't spoken: spread evenly between the neighbours.
     i = 0
     while i < n:
         if times[i] is not None:
@@ -101,8 +131,40 @@ def align(script_words: list[str], heard: list[tuple[str, float, float]],
     return times  # type: ignore[return-value]
 
 
-def sync_scenes(scenes: list[Scene], heard: list[tuple[str, float, float]], total: float) -> list[Scene]:
-    """Set every scene's start/end and caption cues from the aligned word times."""
+def caption_words(script_words: list[str], heard: list[Word],
+                  times: list[tuple[float, float]]) -> list[Word]:
+    """The words to caption, in time order: the script's spelling where the voiceover says the
+    script, and what was actually said where it says something else. Script words that weren't
+    spoken get no caption."""
+    out: list[Word] = []
+    for tag, i1, i2, j1, j2 in _diff(script_words, heard):
+        n, m = i2 - i1, j2 - j1
+        if _same_words(tag, n, m) or tag == "delete" and n <= SLIP:
+            out += [(script_words[k], *times[k]) for k in range(i1, i2)]
+        elif tag == "replace" or tag == "insert" and m > SLIP:
+            out += heard[j1:j2]
+    return out
+
+
+def _cues(words: list[Word], end: float) -> list[Cue]:
+    """2–4 word captions, each shown from its first word until the next one starts, or until
+    shortly after its last word when a long pause follows."""
+    cues, pos = [], 0
+    for chunk in caption_chunks(" ".join(w for w, _, _ in words)):
+        size = len(chunk.split())
+        cues.append((chunk, words[pos][1], words[pos + size - 1][2]))
+        pos += size
+    out = []
+    for k, (text, a, last) in enumerate(cues):
+        nxt = cues[k + 1][1] if k + 1 < len(cues) else end
+        b = nxt if nxt - last < 0.6 else last + 0.3
+        out.append(Cue(text=text, start=round(a, 2), end=round(max(min(b, end), a + 0.2), 2)))
+    return out
+
+
+def sync_scenes(scenes: list[Scene], heard: list[Word], total: float) -> tuple[list[Scene], list[int]]:
+    """Set every scene's start/end and caption cues from the aligned word times. Also returns
+    the scenes whose script mostly isn't in the voiceover."""
     words, owner = [], []
     for i, s in enumerate(scenes):
         for w in s.voiceover.split():
@@ -111,6 +173,10 @@ def sync_scenes(scenes: list[Scene], heard: list[tuple[str, float, float]], tota
     if not words:
         raise UserError("The scenes have no voiceover text to match against the audio.")
     times = align(words, heard, total)
+    spoken = [False] * len(words)
+    for tag, i1, i2, j1, j2 in _diff(words, heard):
+        if _same_words(tag, i2 - i1, j2 - j1):
+            spoken[i1:i2] = [True] * (i2 - i1)
 
     first = {}
     for k, i in enumerate(owner):
@@ -126,18 +192,15 @@ def sync_scenes(scenes: list[Scene], heard: list[tuple[str, float, float]], tota
             starts.append(starts[-1] + 0.5)
     ends = starts[1:] + [total]
 
-    out = []
+    caps = caption_words(words, heard, times)
+    out, unmatched = [], []
     for i, s in enumerate(scenes):
         s = s.model_copy(deep=True)
         s.start, s.end = round(starts[i], 2), round(ends[i], 2)
+        mine = [w for w in caps if (starts[i] <= w[1] or i == 0) and (w[1] < ends[i] or i == len(scenes) - 1)]
+        s.captions = _cues(mine, s.end)  # empty = no captions (nothing is said in this scene)
         idx = [k for k, o in enumerate(owner) if o == i]
-        cues, pos = [], 0
-        for chunk in caption_chunks(s.voiceover):
-            size = len(chunk.split())
-            cues.append(Cue(text=chunk, start=round(max(times[idx[pos]][0], s.start), 2), end=0))
-            pos += size
-        for c, nxt in zip(cues, cues[1:] + [None]):
-            c.end = round(nxt.start if nxt else s.end, 2)
-        s.captions = cues or None
+        if idx and sum(spoken[k] for k in idx) < len(idx) / 2:
+            unmatched.append(i)
         out.append(s)
-    return out
+    return out, unmatched

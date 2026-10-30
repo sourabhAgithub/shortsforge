@@ -37,6 +37,7 @@ type Props = {
   syncJob: Job | null;
   syncing: boolean;
   syncError: string;
+  syncNote: string; // warning after a sync that worked
 };
 
 /** Pins every scene to its current start/end so one boundary can move without the rest re-flowing. */
@@ -56,6 +57,7 @@ export default function PreviewPanel({
   syncJob,
   syncing,
   syncError,
+  syncNote,
 }: Props) {
   const voice = useRef<HTMLAudioElement>(null);
   const music = useRef<HTMLAudioElement>(null);
@@ -254,6 +256,11 @@ export default function PreviewPanel({
       {syncError && (
         <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
           {syncError}
+        </p>
+      )}
+      {syncNote && (
+        <p className="mt-3 rounded-lg bg-amber/10 px-3 py-2 text-sm text-amber">
+          {syncNote}
         </p>
       )}
 

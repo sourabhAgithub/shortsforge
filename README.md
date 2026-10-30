@@ -2,13 +2,17 @@
 
 Make faceless YouTube Shorts on your own computer. It's free, there's no login, and it uses no paid services.
 
-Two tools work today:
+Four tools work today:
 
 - **Ranking Video:** paste 3–10 clip links, give each one a caption, and get a 1080×1920 countdown Short. It
   has a bold two-line title at the top and a rank list down the side that fills in as each clip plays.
-- **AI Video Generator:** upload a voiceover and paste a scene-by-scene script. Each scene gets footage made
+- **Multiple Clip Generator:** upload a voiceover and paste a scene-by-scene script. Each scene gets footage made
   from its description, and the app builds a finished Short with a title banner, big labels, captions and
   a ranking list.
+- **Video Generator:** edit one video into a Short. Trim it, keep or mute its sound, add your own audio,
+  make captions automatically from the speech, and put text anywhere on screen.
+- **Voice Generator:** type a script, pick a language and voice, and download it as an MP3. It has hundreds of
+  natural voices in over 70 languages, including Hindi, Tamil, Malayalam and Telugu.
 
 The other tools in the sidebar are marked "Coming soon".
 
@@ -91,9 +95,9 @@ carry on later.
 The estimated length shows above the Generate button. YouTube Shorts can be up to 3 minutes long, but ranking
 videos usually do best under 60 seconds, so the app warns you when you go over.
 
-## 4. Make an AI video
+## 4. Make a multiple clip video
 
-1. Click **AI Video Generator**, then **Create AI Video**.
+1. Click **Multiple Clip Generator**, then **Create Multi-Clip Video**.
 2. **Title:** shown in a banner at the top of the whole video. Pick a **Title color**, or pick a **Highlight words** color and click
    words to paint just those, e.g. *Tallest Mountains* in red on a yellow title.
 3. **Voiceover:** upload your narration as an MP3 or WAV. The video will be exactly as long as this audio.
@@ -157,11 +161,59 @@ the app:
 | --- | --- | --- |
 | `POLLINATIONS_TOKEN` | Removes the 45-second wait between AI images and the small corner logo | <https://enter.pollinations.ai> |
 | `PIXABAY_API_KEY` | Turns on stock footage (used when AI fails, or as the "Stock footage" source) | Sign up free at <https://pixabay.com>, then copy the key from <https://pixabay.com/api/docs/> |
+| `ELEVENLABS_API_KEY` | Voice Generator: adds ElevenLabs voices that act out tags like `[whispers]` (paid per character, small free allowance) | <https://elevenlabs.io>, then Profile → API keys |
 | `PEXELS_API_KEY` | Same as above, using Pexels (tried first if both are set) | <https://www.pexels.com/api/> (new keys paused at the moment) |
 
 Without any keys, everything still works: free AI images (slow), with gradients as the fallback.
 
-## 5. Fixing download problems
+## 5. Edit one video (Video Generator)
+
+1. Click **Video Generator**, then **Create Video**. The live preview sits on the right (below the steps on
+   a phone). Its playhead is the time used by every **Now** and **Add … at** button.
+2. **Name:** for My Videos and the downloaded file only. It isn't drawn on the video.
+3. **Video:** upload one video (MP4, MOV or WebM).
+   - **Framing:** *Fill frame* crops a landscape video to fill the 9:16 screen. *Fit whole video* shows all of
+     it over a blurred or black background.
+   - **Trim:** start and end in the original video. Caption and text times count from the trim start.
+   - **Video sound:** switch it off to mute the video, or set its volume.
+4. **External audio (optional):** a voiceover or music, mixed with the video's sound. Set its volume and when it
+   **starts**. To hear only this audio, mute the video in step 3.
+5. **Captions:** **Make captions** listens to the video's sound or the external audio and times each caption to
+   the spoken words (2–3 words at a time). Paste the exact words first if you want your spelling. You can then
+   edit any caption's words and times, add or delete captions, and set their size, position and colour. The switch
+   at the top turns all captions on or off.
+6. **Text on video:** add as many texts as you like. Each one has its own show time, position (**Across** /
+   **Down**), size, colour and optional box behind it. Press Enter in the text box for a new line.
+7. **Render video:** one 1080×1920 MP4, saved to My Videos.
+
+## 6. Make a voiceover MP3 (Voice Generator)
+
+1. Click **Voice Generator** (under *Create*).
+2. **Script:** type or paste what should be said, up to 20,000 characters. Write it in the voice's language.
+3. **Language** and **Voice:** pick a language, then a voice. **Female** / **Male** filters the list, and ▶
+   plays a short sample that reads the start of your script. The app remembers your last voice.
+4. **Tags (optional):** put directions in square brackets, e.g. `[whispers] Open the door. [long pause]`. The
+   buttons under the script add them at the cursor. Tags are never read out:
+   - **Free voices** turn `[pause]`, `[short pause]` and `[long pause]` into silence, and mood tags (`[whispers]`,
+     `[softly]`, `[slowly]`, `[nervous]`, `[urgent]`, `[excited]`, `[sad]`, `[angry]`, `[serious]`) into slower or
+     faster, higher or lower, quieter or louder speech until the next tag or the end of the line. They can't
+     truly whisper or cry.
+   - **ElevenLabs voices** act the tags out (real whispers, a nervous voice, sighs, laughs). See the key below.
+5. **Speed** and **Pitch:** optional, free voices only. Speed +10% to +20% suits Shorts.
+6. **Generate MP3**, then play it or click **Download MP3**. The file is named after the script's first words.
+7. **Your voiceovers** keeps your 50 newest MP3s to play, download again or delete.
+
+The free voices come from Microsoft's online text-to-speech service (the same one as Edge's "Read aloud"), so
+this tool needs an internet connection. No account or API key is needed. For Indian names and words in an
+English script, the *English (India)* voices (Neerja, Prabhat) pronounce them best.
+
+**ElevenLabs (optional, paid):** for the most natural, emotional voices, add `ELEVENLABS_API_KEY` to your `.env`
+file (see *Optional API keys*) and restart. Its voices appear first in the **Language** list as
+*★ ElevenLabs*. They speak any language, and ▶ plays their ready-made sample without using credits. ElevenLabs
+charges per character of script; its free plan only covers a few minutes a month. To use an MP3 in a video, upload it as
+the voiceover in the Multiple Clip Generator or as external audio in the Video Generator.
+
+## 7. Fixing download problems
 
 **"The site asked for a login or is rate-limiting downloads" (common with Instagram)**
 
@@ -212,8 +264,10 @@ Everything stays in the `data` folder next to this file:
 | Folder | What's in it |
 | --- | --- |
 | `data/downloads/` | downloaded clips (reused, so the same link isn't downloaded twice) |
-| `data/projects/` | your projects (JSON; AI videos in `projects/aivideo/`) |
-| `data/aivideo/` | AI video uploads and generated footage, one folder per project (deleted with the project) |
+| `data/projects/` | your projects (JSON, one folder per tool) |
+| `data/aivideo/` | Multiple Clip Generator uploads and generated footage, one folder per project (deleted with the project) |
+| `data/videogen/` | Video Generator videos and audio, one folder per project (deleted with the project) |
+| `data/voiceover/` | Voice Generator MP3s (the 50 newest are kept) |
 | `data/outputs/` | finished videos and their thumbnails |
 
 Delete `data/downloads` any time to free up space. Projects will re-download their clips when you generate.
@@ -234,6 +288,10 @@ backend/app/
   tools/ranking/     models, Pillow overlay drawing, ffmpeg render pipeline, API
   tools/aivideo/     script parser, footage providers (AI / Pexels / Pixabay / gradient), overlays,
                      render, auto-sync (faster-whisper word timings), API
+  tools/videogen/    single-video editor: trim/framing, sound mix, text and caption overlays,
+                     auto captions (reuses aivideo's speech recognition), API
+  tools/voiceover/   text to speech MP3s: edge-tts voices, optional ElevenLabs (elevenlabs.py), delivery
+                     tags turned into pauses + prosody for edge-tts (tags.py), saved history, API
   textdraw.py        outlined text with colour emoji (uses the system emoji font)
 frontend/src/
   tools/registry.tsx tool list shown in the sidebar/dashboard
