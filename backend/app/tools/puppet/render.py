@@ -15,18 +15,21 @@ from ... import videos
 from ...config import PUPPET_DIR
 from ...ffmpeg_util import FFmpegError, ffmpeg_exe, make_thumbnail, probe
 from ...jobs import Job, UserError
-from .models import PuppetProject
-from .motions import FPS, JOINTS, timeline
+from .models import Person, Prop, PuppetProject
+from .motions import FPS, JOINTS, tracks
 
 W, H = 1080, 1920
 GROUND = 0.82  # feet stand this far down the frame
 MAX_SECONDS = 180
 PX = 2  # part images hold 2 pixels per figure unit (800x1600 for the 400x800 figure)
+PROP = 400  # scene items are 400 units square (800x800 pixels)
 FEET = (200, 780)
 HIP = (200, 470)
 NECK = (200, 215)
-JOINT = {"head": NECK, "armL": (150, 245), "armR": (250, 245), "legL": (170, 470), "legR": (230, 470)}
-LAYERS = ("legL", "legR", "torso", "armL", "armR", "head")  # back to front
+JOINT = {"hair": NECK, "head": NECK, "armL": (150, 245), "armR": (250, 245), "legL": (170, 470), "legR": (230, 470)}
+SIDE_JOINT = {"hair": NECK, "head": NECK, "armL": (200, 245), "armR": (200, 245), "legL": (200, 470), "legR": (200, 470)}
+LAYERS = ("hair", "legL", "legR", "torso", "armL", "armR", "head")  # back to front
+SIDE_LAYERS = ("hair", "armL", "legL", "legR", "torso", "armR", "head")  # the far arm goes behind the body
 
 Matrix = tuple[float, float, float, float, float, float]  # x' = ax+by+c, y' = dx+ey+f
 
@@ -71,57 +74,82 @@ def _place(frame: Image.Image, layer: Image.Image, origin: tuple[int, int], m: M
 
 
 def draw_figure(frame: Image.Image, parts: dict, row: list[float], scale: float) -> None:
-    x, flip, *rest = row
+    x, width, side, *rest = row
     pose = dict(zip(JOINTS, rest))
     fx, fy = FEET
-    base: Matrix = (scale * flip, 0, x * W - scale * flip * fx, 0, scale, GROUND * H - scale * fy)
+    base: Matrix = (scale * width, 0, x * W - scale * width * fx, 0, scale, GROUND * H - scale * fy)
     base = _mul(base, (1, 0, 0, 0, 1, pose["y"]))
     root = _mul(base, _rot(pose["root"], FEET))
     body = _mul(root, _rot(pose["body"], HIP))
-    for name in LAYERS:
-        if name not in parts:
-            continue
+    joints = SIDE_JOINT if side else JOINT
+    view = "_side" if side else ""
+    for name in SIDE_LAYERS if side else LAYERS:
         if name == "torso":
             m = body
         else:
-            m = _mul(root if name.startswith("leg") else body, _rot(pose[name], JOINT[name]))
-        image, origin = parts[name]
-        _place(frame, image, origin, _mul(m, (1 / PX, 0, 0, 0, 1 / PX, 0)))
+            turn = pose["head" if name == "hair" else name]  # back hair moves with the head
+            m = _mul(root if name.startswith("leg") else body, _rot(turn, joints[name]))
+        pixels = _mul(m, (1 / PX, 0, 0, 0, 1 / PX, 0))
+        art = name + view
+        if art in parts:
+            _place(frame, *parts[art], pixels)
+        elif name in parts:  # no side art: the front art, moved onto the side joint
+            dx = joints[name][0] - JOINT[name][0] if side and name != "torso" else 0
+            _place(frame, *parts[name], _mul(_mul(m, (1, 0, dx, 0, 1, 0)), (1 / PX, 0, 0, 0, 1 / PX, 0)))
+        extra = f"{art}_extra"
+        if extra in parts:
+            _place(frame, *parts[extra], pixels)
 
 
-def load_parts(p: PuppetProject) -> dict:
-    """Each drawn part, cropped to its ink (so frames only touch the pixels they need)."""
-    out = {}
-    for name, file in p.parts.items():
-        path = media_dir(p.id) / file
-        if not path.exists():
-            continue
-        img = Image.open(path).convert("RGBA")
-        box = img.getbbox()
-        if box:
-            out[name] = (img.crop(box).convert("RGBa"), box[:2])
-    return out
+def _art(path: Path) -> tuple[Image.Image, tuple[int, int]] | None:
+    """A drawing cropped to its ink (so frames only touch the pixels they need), if it has any."""
+    if not path.exists():
+        return None
+    img = Image.open(path).convert("RGBA")
+    box = img.getbbox()
+    return (img.crop(box).convert("RGBa"), box[:2]) if box else None
 
 
-def background(p: PuppetProject) -> Image.Image:
+def load_parts(project_id: str, person: Person) -> dict:
+    arts = {name: _art(media_dir(project_id) / file) for name, file in person.parts.items()}
+    return {name: art for name, art in arts.items() if art}
+
+
+def load_props(p: PuppetProject) -> list[tuple[Prop, tuple]]:
+    arts = [(prop, _art(media_dir(p.id) / f"prop_{prop.kind}.png")) for prop in p.props]
+    return [(prop, art) for prop, art in arts if art]
+
+
+def draw_prop(frame: Image.Image, prop: Prop, art: tuple) -> None:
+    s, w = prop.scale, -prop.scale if prop.flip else prop.scale
+    m: Matrix = (w, 0, prop.x * W, 0, s, prop.y * H)
+    m = _mul(m, (1 / PX, 0, -PROP / 2, 0, 1 / PX, -PROP))
+    _place(frame, *art, m)
+
+
+def background(p: PuppetProject, props: list[tuple[Prop, tuple]]) -> Image.Image:
     bg = Image.new("RGBA", (W, H), p.bg_color)
     bg.paste(p.ground_color, (0, round(GROUND * H) - 10, W, H))
+    for prop, art in props:
+        if not prop.front:
+            draw_prop(bg, prop, art)
     return bg
 
 
 def render(p: PuppetProject, job: Job | None = None) -> dict:
-    parts = load_parts(p)
-    if not parts:
+    cast = [(load_parts(p.id, c), c.scale) for c in p.characters]
+    if not any(parts for parts, _ in cast):
         raise UserError("Draw your figure first (step 1).")
-    frames = timeline(p.actions, p.start_x)
+    rows = list(tracks(p).values())
+    frames = len(rows[0])
     if not frames:
         raise UserError("Add at least one action (step 2).")
-    if len(frames) > MAX_SECONDS * FPS:
+    if frames > MAX_SECONDS * FPS:
         raise UserError(f"That's too long. Keep the actions under {MAX_SECONDS // 60} minutes in total.")
 
     video_id = videos.new_id()
     mp4, jpg, _ = videos.paths(video_id)
-    dur = len(frames) / FPS
+    dur = frames / FPS
     threads = os.environ.get("FFMPEG_THREADS")
     cmd = [ffmpeg_exe(), "-hide_banner", "-nostdin", "-y", "-loglevel", "error",
            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "pipe:0",
@@ -131,17 +159,23 @@ def render(p: PuppetProject, job: Job | None = None) -> dict:
            "-b:a", "128k", "-t", f"{dur:.3f}", "-movflags", "+faststart",
            *(["-threads", threads] if threads else []), str(mp4)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-    bg = background(p)
-    last_row, data = None, b""
+    props = load_props(p)
+    bg = background(p, props)
+    in_front = [(prop, art) for prop, art in props if prop.front]
+    last_poses, data = None, b""
     try:
-        for i, row in enumerate(frames):
-            if row != last_row:  # a held pose reuses the frame it just drew
+        for i in range(frames):
+            poses = [r[i] for r in rows]
+            if poses != last_poses:  # a held pose reuses the frame it just drew
                 frame = bg.copy()
-                draw_figure(frame, parts, row, p.scale)
-                data, last_row = frame.convert("RGB").tobytes(), row
+                for (parts, scale), row in zip(cast, poses):
+                    draw_figure(frame, parts, row, scale)
+                for prop, art in in_front:
+                    draw_prop(frame, prop, art)
+                data, last_poses = frame.convert("RGB").tobytes(), poses
             proc.stdin.write(data)
             if job and i % 15 == 0:
-                job.update(0.02 + 0.9 * i / len(frames), "Animating your story…")
+                job.update(0.02 + 0.9 * i / frames, "Animating your story…")
         proc.stdin.close()
         err = proc.stderr.read().decode(errors="replace")
         if proc.wait() != 0:

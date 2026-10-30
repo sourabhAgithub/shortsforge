@@ -6,17 +6,35 @@ import {
   Loader2,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type Job, type Video, waitForJob } from "../../api";
 import RenderDialog, { type RenderState } from "../../components/RenderDialog";
 import Section from "../../components/Section";
 import Switch from "../../components/Switch";
+import AccessoryPicker from "./AccessoryPicker";
 import DrawingBoard from "./DrawingBoard";
-import { makeLayers, type PartId, partContext, FW, FH } from "./figure";
+import {
+  CHARACTERS,
+  type Character,
+  EXTRAS,
+  FH,
+  FW,
+  type Layers,
+  makeLayers,
+  paintAccessories,
+  paintCharacter,
+  PARTS,
+  type PartId,
+  partContext,
+  propCanvas,
+  type View,
+} from "./figure";
+import PropPicker from "./PropPicker";
 import PuppetPreview from "./PuppetPreview";
-import type { Action, Motion, PuppetProject } from "./types";
+import type { Action, Motion, Person, Prop, PuppetProject } from "./types";
 
 const newId = () => Math.random().toString(16).slice(2, 10);
 
@@ -24,7 +42,8 @@ export default function PuppetEditor() {
   const { id } = useParams();
   const [project, setProject] = useState<PuppetProject | null>(null);
   const [motions, setMotions] = useState<Motion[]>([]);
-  const [frames, setFrames] = useState<number[][]>([]);
+  const [tracks, setTracks] = useState<Record<string, number[][]>>({});
+  const [selected, setSelected] = useState("");
   const [fps, setFps] = useState(30);
   const [version, setVersion] = useState(0);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">(
@@ -32,11 +51,21 @@ export default function PuppetEditor() {
   );
   const [loadError, setLoadError] = useState("");
   const [render, setRender] = useState<RenderState | null>(null);
+  const [view, setView] = useState<View>("front");
+  const [peeking, setPeeking] = useState(true); // the preview shows the board's view, not the story
 
-  const layers = useMemo(makeLayers, []);
+  const layers = useRef(new Map<string, Layers>());
+  const layersOf = useCallback((personId: string) => {
+    let l = layers.current.get(personId);
+    if (!l) {
+      l = makeLayers();
+      layers.current.set(personId, l);
+    }
+    return l;
+  }, []);
   const latest = useRef<PuppetProject | null>(null);
   const dirty = useRef(false);
-  const unsaved = useRef(new Set<PartId>());
+  const unsaved = useRef(new Set<string>()); // "person/part"
   const uploading = useRef(false);
   const uploadTimer = useRef(0);
 
@@ -47,32 +76,35 @@ export default function PuppetEditor() {
     ])
       .then(async ([p, m]) => {
         await Promise.all(
-          Object.entries(p.parts).map(
-            ([part, file]) =>
-              new Promise<void>((done) => {
-                const img = new Image();
-                img.onload = () => {
-                  partContext(layers[part as PartId]).drawImage(
-                    img,
-                    0,
-                    0,
-                    FW,
-                    FH,
-                  );
-                  done();
-                };
-                img.onerror = () => done();
-                img.src = `/media/puppet/${p.id}/${file}`;
-              }),
+          p.characters.flatMap((c) =>
+            Object.entries(c.parts).map(
+              ([part, file]) =>
+                new Promise<void>((done) => {
+                  const img = new Image();
+                  img.onload = () => {
+                    partContext(layersOf(c.id)[part as PartId]).drawImage(
+                      img,
+                      0,
+                      0,
+                      FW,
+                      FH,
+                    );
+                    done();
+                  };
+                  img.onerror = () => done();
+                  img.src = `/media/puppet/${p.id}/${file}`;
+                }),
+            ),
           ),
         );
         latest.current = p;
         setProject(p);
+        setSelected(p.characters[0].id);
         setMotions(m);
         setVersion((v) => v + 1);
       })
       .catch((e) => setLoadError(e.message));
-  }, [id, layers]);
+  }, [id, layersOf]);
 
   const update = useCallback((patch: Partial<PuppetProject>) => {
     dirty.current = true;
@@ -108,20 +140,26 @@ export default function PuppetEditor() {
     setSaveState("saving");
     try {
       while (unsaved.current.size) {
-        const [part] = unsaved.current;
-        unsaved.current.delete(part);
+        const [key] = unsaved.current;
+        unsaved.current.delete(key);
+        const [person, part] = key.split("/") as [string, PartId];
         const blob = await new Promise<Blob | null>((ok) =>
-          layers[part].toBlob(ok, "image/png"),
+          layersOf(person)[part].toBlob(ok, "image/png"),
         );
         if (!blob) continue;
         const form = new FormData();
         form.append("file", blob, `${part}.png`);
-        const { parts } = await api<Pick<PuppetProject, "parts">>(
-          `/api/puppet/projects/${id}/parts/${part}`,
+        const { parts } = await api<Pick<Person, "parts">>(
+          `/api/puppet/projects/${id}/characters/${person}/parts/${part}`,
           { method: "POST", body: form },
         );
         setProject((p) => {
-          const next = p ? { ...p, parts } : p;
+          const next = p && {
+            ...p,
+            characters: p.characters.map((c) =>
+              c.id === person ? { ...c, parts } : c,
+            ),
+          };
           latest.current = next;
           return next;
         });
@@ -132,11 +170,12 @@ export default function PuppetEditor() {
     } finally {
       uploading.current = false;
     }
-  }, [id, layers]);
+  }, [id, layersOf]);
 
   const drew = useCallback(
-    (parts: PartId[]) => {
-      parts.forEach((p) => unsaved.current.add(p));
+    (person: string, parts: PartId[]) => {
+      parts.forEach((p) => unsaved.current.add(`${person}/${p}`));
+      setPeeking(true);
       setVersion((v) => v + 1);
       clearTimeout(uploadTimer.current);
       uploadTimer.current = window.setTimeout(uploadParts, 500);
@@ -165,24 +204,26 @@ export default function PuppetEditor() {
   }, [uploadParts]);
 
   // The poses come from the server, so the preview always matches the render.
-  const actions = project?.actions;
-  const startX = project?.start_x;
+  const cast = project?.characters;
   useEffect(() => {
-    if (!actions) return;
+    if (!cast) return;
     const timer = setTimeout(async () => {
       try {
-        const res = await api<{ fps: number; frames: number[][] }>(
-          `/api/puppet/projects/${id}/track`,
-          { method: "POST", json: latest.current },
-        );
+        const res = await api<{
+          fps: number;
+          tracks: Record<string, number[][]>;
+        }>(`/api/puppet/projects/${id}/track`, {
+          method: "POST",
+          json: latest.current,
+        });
         setFps(res.fps);
-        setFrames(res.frames);
+        setTracks(res.tracks);
       } catch {
         /* the preview just keeps its last poses */
       }
     }, 150);
     return () => clearTimeout(timer);
-  }, [actions, startX, id]);
+  }, [cast, id]);
 
   if (loadError)
     return (
@@ -193,21 +234,108 @@ export default function PuppetEditor() {
   if (!project)
     return <Loader2 className="m-10 size-6 animate-spin text-sky" />;
 
-  const list = project.actions;
-  const setAction = (a: Action, patch: Partial<Action>) =>
+  const person =
+    project.characters.find((c) => c.id === selected) ?? project.characters[0];
+  const list = person.actions;
+  const setPerson = (patch: Partial<Person>) =>
     update({
-      actions: list.map((x) => (x.id === a.id ? { ...x, ...patch } : x)),
+      characters: project.characters.map((c) =>
+        c.id === person.id ? { ...c, ...patch } : c,
+      ),
     });
-  const total = list.reduce((sum, a) => sum + a.seconds, 0);
+  const setActions = (actions: Action[]) => {
+    setPeeking(false);
+    setPerson({ actions });
+  };
+  const setAction = (a: Action, patch: Partial<Action>) =>
+    setActions(list.map((x) => (x.id === a.id ? { ...x, ...patch } : x)));
+  const total = Math.max(
+    ...project.characters.map((c) =>
+      c.actions.reduce((sum, a) => sum + a.seconds, 0),
+    ),
+  );
+  const nameOf = (c: Person) =>
+    CHARACTERS.find((x) => x.id === c.character)?.label ?? "Person";
 
   function addAction() {
     const m = motions.find((x) => x.id === "walk") ?? motions[0];
-    update({
-      actions: [
-        ...list,
-        { id: newId(), motion: m.id, seconds: m.seconds, to: null },
-      ],
+    setActions([
+      ...list,
+      {
+        id: newId(),
+        motion: m.id,
+        seconds: m.seconds,
+        to: null,
+        face: "auto",
+      },
+    ]);
+  }
+
+  function wear(accessories: Record<string, string>) {
+    paintAccessories(layersOf(person.id), accessories);
+    setPerson({ accessories });
+    drew(person.id, EXTRAS);
+  }
+
+  function pickCharacter(c: Character) {
+    // Attachments don't suit the stick figure.
+    const accessories = c.stick ? {} : person.accessories;
+    paintAccessories(layersOf(person.id), accessories);
+    setPerson({ character: c.id, accessories });
+    if (c.stick) drew(person.id, EXTRAS);
+  }
+
+  async function addPerson() {
+    const added = await api<Person>(`/api/puppet/projects/${id}/characters`, {
+      method: "POST",
     });
+    const people = CHARACTERS.filter((c) => !c.stick);
+    const pick = people[project!.characters.length % people.length];
+    paintCharacter(layersOf(added.id), pick);
+    update({
+      characters: [...project!.characters, { ...added, character: pick.id }],
+    });
+    setSelected(added.id);
+    drew(
+      added.id,
+      PARTS.map((p) => p.id),
+    );
+  }
+
+  async function removePerson(c: Person) {
+    if (!confirm(`Remove ${nameOf(c)} and their actions from this story?`))
+      return;
+    await api(`/api/puppet/projects/${id}/characters/${c.id}`, {
+      method: "DELETE",
+    });
+    for (const key of unsaved.current)
+      if (key.startsWith(`${c.id}/`)) unsaved.current.delete(key);
+    layers.current.delete(c.id);
+    const rest = project!.characters.filter((x) => x.id !== c.id);
+    update({ characters: rest });
+    if (c.id === person.id) setSelected(rest[0].id);
+  }
+
+  const setProps = (props: Prop[]) => update({ props });
+
+  async function sendProps() {
+    const kinds = new Set(latest.current?.props.map((p) => p.kind));
+    await Promise.all(
+      [...kinds].map(async (kind) => {
+        const art = propCanvas(kind);
+        if (!art) return;
+        const blob = await new Promise<Blob | null>((ok) =>
+          art.toBlob(ok, "image/png"),
+        );
+        if (!blob) return;
+        const form = new FormData();
+        form.append("file", blob, `${kind}.png`);
+        await api(`/api/puppet/projects/${id}/props/${kind}`, {
+          method: "POST",
+          body: form,
+        });
+      }),
+    );
   }
 
   function chooseMotion(a: Action, motion: string) {
@@ -218,7 +346,7 @@ export default function PuppetEditor() {
   async function startRender() {
     setRender({ job: null });
     try {
-      await uploadParts();
+      await Promise.all([uploadParts(), sendProps()]);
       const job = await api<Job<Video>>(`/api/puppet/projects/${id}/render`, {
         method: "POST",
         json: latest.current,
@@ -274,15 +402,88 @@ export default function PuppetEditor() {
 
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_300px]">
         <div className="flex min-w-0 flex-col gap-6">
-          <Section n={1} title="Your character">
+          <Section n={1} title="Your characters">
+            <p className="label">People in this story</p>
+            <div className="mb-5 flex flex-wrap items-center gap-2">
+              {project.characters.map((c, i) => (
+                <span
+                  key={c.id}
+                  className={`inline-flex items-center rounded-full ring-1 ${c.id === person.id ? "bg-brand/20 text-sky ring-brand/50" : "bg-white/5 text-muted ring-line"}`}
+                >
+                  <button
+                    onClick={() => {
+                      setSelected(c.id);
+                      setPeeking(true);
+                    }}
+                    className="py-1.5 pr-1 pl-3.5 text-sm font-semibold"
+                  >
+                    {i + 1}. {nameOf(c)}
+                  </button>
+                  {project.characters.length > 1 ? (
+                    <button
+                      onClick={() => removePerson(c)}
+                      className="rounded-full p-1.5 hover:text-red-300"
+                      title={`Remove ${nameOf(c)}`}
+                      aria-label={`Remove ${nameOf(c)}`}
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  ) : (
+                    <span className="w-2.5" />
+                  )}
+                </span>
+              ))}
+              <button onClick={addPerson} className="btn-ghost px-3.5 py-1.5">
+                <Plus className="size-4" /> Add person
+              </button>
+            </div>
             <DrawingBoard
-              layers={layers}
-              drawn={Object.keys(project.parts).length > 0}
-              onChange={drew}
+              key={person.id}
+              layers={layersOf(person.id)}
+              drawn={Object.keys(person.parts).length > 0}
+              accessories={person.accessories}
+              view={view}
+              onView={(v) => {
+                setView(v);
+                setPeeking(true);
+              }}
+              onChange={(parts) => drew(person.id, parts)}
+              onCharacter={pickCharacter}
             />
+            {person.character !== "stick" && (
+              <AccessoryPicker chosen={person.accessories} onChange={wear} />
+            )}
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="text-sm">
+                <span className="label">Starts at</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={person.start_x}
+                  onChange={(e) =>
+                    setPerson({ start_x: Number(e.target.value) })
+                  }
+                  className="w-full accent-brand"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="label">Size</span>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={1.8}
+                  step={0.05}
+                  value={person.scale}
+                  onChange={(e) => setPerson({ scale: Number(e.target.value) })}
+                  className="w-full accent-brand"
+                />
+              </label>
+            </div>
           </Section>
 
-          <Section n={2} title="What happens">
+          <Section n={2} title={`What ${nameOf(person)} does`}>
             <div className="flex flex-col gap-3">
               {list.map((a, i) => (
                 <div
@@ -327,13 +528,31 @@ export default function PuppetEditor() {
                     </label>
                     <button
                       onClick={() =>
-                        update({ actions: list.filter((x) => x.id !== a.id) })
+                        setActions(list.filter((x) => x.id !== a.id))
                       }
                       className="rounded-lg p-2 text-muted hover:bg-white/5 hover:text-red-300"
                       title="Remove"
                     >
                       <Trash2 className="size-4" />
                     </button>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 pl-8 text-xs text-muted">
+                    <span>Faces</span>
+                    <select
+                      value={a.face}
+                      onChange={(e) =>
+                        setAction(a, {
+                          face: e.target.value as Action["face"],
+                        })
+                      }
+                      className="input w-auto py-1.5"
+                      aria-label="Faces"
+                    >
+                      <option value="auto">Automatic</option>
+                      <option value="front">Front</option>
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                    </select>
                   </div>
                   <div className="mt-3 flex items-center gap-3 pl-8 text-xs text-muted">
                     <Switch
@@ -362,7 +581,8 @@ export default function PuppetEditor() {
             </div>
             {!list.length && (
               <p className="text-sm text-muted">
-                Add the first action: walk in, wave, sit down…
+                Add the first action: walk in, wave, sit down… Everyone starts
+                together when the video does.
               </p>
             )}
             <button onClick={addAction} className="btn-ghost mt-3">
@@ -394,36 +614,13 @@ export default function PuppetEditor() {
                   className="h-10 w-full cursor-pointer rounded-lg bg-transparent"
                 />
               </label>
-              <label className="text-sm">
-                <span className="label">Starts at</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={project.start_x}
-                  onChange={(e) => update({ start_x: Number(e.target.value) })}
-                  className="w-full accent-brand"
-                />
-              </label>
-              <label className="text-sm">
-                <span className="label">Character size</span>
-                <input
-                  type="range"
-                  min={0.5}
-                  max={1.8}
-                  step={0.05}
-                  value={project.scale}
-                  onChange={(e) => update({ scale: Number(e.target.value) })}
-                  className="w-full accent-brand"
-                />
-              </label>
             </div>
+            <PropPicker props={project.props} onChange={setProps} />
           </Section>
 
           <button
             onClick={startRender}
-            disabled={!list.length}
+            disabled={!total}
             className="btn-primary self-start px-6 py-3 text-base"
           >
             <Clapperboard className="size-5" /> Render video ({total.toFixed(1)}
@@ -434,10 +631,13 @@ export default function PuppetEditor() {
         <aside className="lg:sticky lg:top-6">
           <PuppetPreview
             project={project}
-            layers={layers}
-            frames={frames}
+            layersOf={layersOf}
+            tracks={tracks}
             fps={fps}
             version={version}
+            selected={person.id}
+            peek={peeking ? view : null}
+            onStory={() => setPeeking(false)}
           />
         </aside>
       </div>

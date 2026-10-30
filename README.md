@@ -218,15 +218,25 @@ the voiceover in the Multiple Clip Generator or as external audio in the Video G
 ## 7. Make a story video (Story Puppets)
 
 1. Click **Story Puppets**, then **Create Story**. The live preview sits on the right (below on a phone).
-2. **Your character:** click a ready-made character (Stick figure, Girl, Boy, Mother, Father or Grandma), then
+2. **Your characters:** use **Add person** for more people, click a person to work on them, and press the **×** on a
+   person to remove just them. For each one, click a ready-made character (Stick figure, Girl, Boy, Mother, Father or Grandma), then
    change anything you like, or draw every part yourself. Pick a **body part**, then use the pen, circle, box or
-   line in any colour. Stay inside the blue box: the dot is the joint that part turns around.
-3. **What happens:** add actions in order (Stand, Walk, Run, Wave, Nod, Tremble, Point, Cheer, Jump, Sit down, Fall
+   line in any colour. Stay inside the blue box: the dot is the joint that part turns around. Switch the **View** to
+   **Side** to change how the character looks from the side; a blank side part borrows the front drawing. The preview shows whichever view you're
+   drawing until you press play. **Hair** is drawn behind the body, for long hair, and recolouring it changes all the character's hair.
+   **Attachments** add a hat, glasses, a moustache or beard, a tie or scarf, a backpack, or something to carry.
+   Click one again to take it off. To change a colour, turn on the **Fill** tool, pick a body part and click a colour, or
+   click a part on the figure: it changes in the front and side views together. The pen, shapes and eraser change only the view you see.
+3. **What happens:** for the selected person, add actions in order (Stand, Walk, Run, Wave, Nod, Tremble, Point, Cheer, Jump, Sit down, Fall
    over) and set how long each lasts. Turn on **Move across the screen** to walk the character to a new spot.
-4. **Scene:** sky and ground colours, where the character starts, and its size.
+   **Faces** is Automatic by default: sideways when walking or moving, towards the camera otherwise. Pick Front, Left
+   or Right to choose yourself. The character flips like a paper cut-out when it turns. Everyone starts together, and
+   anyone who finishes early holds their last pose. To make someone wait, give them a Stand action first.
+4. **Scene:** sky and ground colours. Under **Add to the scene**, add houses, trees, a car, a moon and more. Each one
+   has its own position, size, flip and in-front-of-people switch, and its own remove button.
 5. **Render video:** a 1080×1920 MP4 saved to My Videos.
 
-This first version has one character and no voice yet. Scenes, voiceover and captions come next.
+There's no voice yet. Scene changes, voiceover and captions come next.
 
 ## 8. Fixing download problems
 

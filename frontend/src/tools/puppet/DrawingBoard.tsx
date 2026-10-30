@@ -2,6 +2,7 @@ import {
   Circle,
   Eraser,
   Minus,
+  PaintBucket,
   Pencil,
   Square,
   Trash2,
@@ -19,17 +20,27 @@ import {
   type Character,
   FH,
   FW,
+  HAIR_PARTS,
+  hairColour,
   type Layers,
   type PartId,
   PARTS,
   type Point,
+  type View,
   paintCharacter,
+  mainColour,
+  partAt,
   partContext,
+  recolour,
+  type Rgb,
+  sameColour,
+  twin,
 } from "./figure";
 
-type Tool = "pen" | "eraser" | "circle" | "box" | "line";
+type Tool = "pen" | "fill" | "eraser" | "circle" | "box" | "line";
 const TOOLS: { id: Tool; label: string; icon: typeof Pencil }[] = [
   { id: "pen", label: "Pen", icon: Pencil },
+  { id: "fill", label: "Fill: change a colour", icon: PaintBucket },
   { id: "circle", label: "Circle", icon: Circle },
   { id: "box", label: "Box", icon: Square },
   { id: "line", label: "Line", icon: Minus },
@@ -44,18 +55,30 @@ const MAX_UNDO = 8;
 type Props = {
   layers: Layers;
   drawn: boolean; // something is on the figure already (asks before replacing it)
+  accessories: Record<string, string>; // redraws the board when these change
+  view: View;
+  onView: (v: View) => void;
   onChange: (parts: PartId[]) => void;
+  onCharacter: (c: Character) => void;
 };
 
 /** Draw the figure one body part at a time, over a guide that shows where each part goes. */
-export default function DrawingBoard({ layers, drawn, onChange }: Props) {
+export default function DrawingBoard({
+  layers,
+  drawn,
+  accessories,
+  view,
+  onView,
+  onChange,
+  onCharacter,
+}: Props) {
   const [part, setPart] = useState<PartId>("head");
   const [tool, setTool] = useState<Tool>("pen");
   const [color, setColor] = useState("#111111");
   const [size, setSize] = useState(12);
   const [canUndo, setCanUndo] = useState(false);
   const board = useRef<HTMLCanvasElement>(null);
-  const undo = useRef<Partial<Record<PartId, ImageData[]>>>({});
+  const undo = useRef<{ id: PartId; data: ImageData }[][]>([]);
   const shape = useRef<{ from: Point; to: Point } | null>(null);
 
   const paintShape = useCallback(
@@ -99,9 +122,11 @@ export default function DrawingBoard({ layers, drawn, onChange }: Props) {
     if (!ctx) return;
     ctx.clearRect(0, 0, FW, FH);
     const active = PARTS.find((p) => p.id === part)!;
-    for (const p of PARTS) {
+    for (const p of PARTS.filter((x) => x.view === view)) {
       ctx.globalAlpha = p.id === part ? 1 : 0.3;
       ctx.drawImage(layers[p.id], 0, 0, FW, FH);
+      const extra = `${p.id}_extra` as PartId;
+      if (extra in layers) ctx.drawImage(layers[extra], 0, 0, FW, FH);
     }
     ctx.globalAlpha = 1;
     if (shape.current) paintShape(ctx, shape.current);
@@ -115,19 +140,59 @@ export default function DrawingBoard({ layers, drawn, onChange }: Props) {
     ctx.beginPath();
     ctx.arc(...active.joint, 7, 0, Math.PI * 2);
     ctx.fill();
-  }, [layers, paintShape, part]);
+  }, [layers, paintShape, part, view]);
 
-  useEffect(redraw, [redraw, drawn]);
-  useEffect(() => {
-    setCanUndo(!!undo.current[part]?.length);
-  }, [part]);
+  useEffect(redraw, [redraw, drawn, accessories]);
 
-  function remember() {
-    const c = layers[part];
-    const stack = (undo.current[part] ??= []);
-    stack.push(c.getContext("2d")!.getImageData(0, 0, c.width, c.height));
-    if (stack.length > MAX_UNDO) stack.shift();
+  function remember(
+    step = [
+      {
+        id: part,
+        data: layers[part]
+          .getContext("2d")!
+          .getImageData(0, 0, layers[part].width, layers[part].height),
+      },
+    ],
+  ) {
+    undo.current.push(step);
+    if (undo.current.length > MAX_UNDO) undo.current.shift();
     setCanUndo(true);
+  }
+
+  /** Paint one colour on some parts with the chosen one. */
+  function paint(ids: PartId[], from: Rgb, hex: string) {
+    const value = (at: number) => parseInt(hex.slice(at, at + 2), 16);
+    const to: Rgb = [value(1), value(3), value(5)];
+    const before = recolour(layers, ids, from, to);
+    if (!before.length) return;
+    remember(before);
+    redraw();
+    onChange(before.map((b) => b.id));
+  }
+
+  function fill(point: Point) {
+    const hit = partAt(layers, view, point);
+    if (!hit) return;
+    const hair = hairColour(layers);
+    if (hair && sameColour(hit.rgb, hair)) {
+      setPart(view === "front" ? "hair" : "hair_side");
+      paint(HAIR_PARTS, hair, color);
+    } else {
+      setPart(hit.id);
+      paint([hit.id, twin(hit.id)], hit.rgb, color);
+    }
+  }
+
+  function chooseColor(next: string) {
+    setColor(next);
+    if (tool !== "fill") return;
+    if (HAIR_PARTS.slice(0, 2).includes(part)) {
+      const hair = hairColour(layers);
+      if (hair) paint(HAIR_PARTS, hair, next);
+      return;
+    }
+    const main = mainColour(layers, part) ?? mainColour(layers, twin(part));
+    if (main) paint([part, twin(part)], main, next);
   }
 
   function at(e: { clientX: number; clientY: number }): Point {
@@ -140,6 +205,7 @@ export default function DrawingBoard({ layers, drawn, onChange }: Props) {
 
   function down(e: ReactPointerEvent<HTMLCanvasElement>) {
     e.preventDefault();
+    if (tool === "fill") return fill(at(e));
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
     remember();
@@ -185,12 +251,13 @@ export default function DrawingBoard({ layers, drawn, onChange }: Props) {
   }
 
   function stepBack() {
-    const data = undo.current[part]?.pop();
-    if (!data) return;
-    layers[part].getContext("2d")!.putImageData(data, 0, 0);
-    setCanUndo(!!undo.current[part]?.length);
+    const step = undo.current.pop();
+    if (!step) return;
+    for (const { id, data } of step)
+      layers[id].getContext("2d")!.putImageData(data, 0, 0);
+    setCanUndo(!!undo.current.length);
     redraw();
-    onChange([part]);
+    onChange(step.map((s) => s.id));
   }
 
   function clearPart() {
@@ -202,11 +269,18 @@ export default function DrawingBoard({ layers, drawn, onChange }: Props) {
 
   function useCharacter(c: Character) {
     if (drawn && !confirm(`Replace your figure with ${c.label}?`)) return;
-    undo.current = {};
+    undo.current = [];
     setCanUndo(false);
     paintCharacter(layers, c);
     redraw();
     onChange(PARTS.map((p) => p.id));
+    onCharacter(c);
+  }
+
+  function showView(next: View) {
+    const same = PARTS.find((p) => p.id === part)!.base;
+    onView(next);
+    setPart(PARTS.find((p) => p.base === same && p.view === next)!.id);
   }
 
   return (
@@ -242,9 +316,30 @@ export default function DrawingBoard({ layers, drawn, onChange }: Props) {
         />
         <div className="flex min-w-0 flex-col gap-4">
           <div>
+            <p className="label">View</p>
+            <div className="flex gap-1.5">
+              {(["front", "side"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => showView(v)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize ${view === v ? "bg-brand/20 text-sky ring-1 ring-brand/50" : "bg-white/5 text-muted ring-1 ring-line hover:text-white"}`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+            {view === "side" && (
+              <p className="mt-2 text-xs text-muted">
+                Used for walking. Draw it facing right; it mirrors by itself. A
+                blank part borrows the front drawing.
+              </p>
+            )}
+          </div>
+
+          <div>
             <p className="label">Body part</p>
             <div className="flex flex-wrap gap-1.5">
-              {PARTS.map((p) => (
+              {PARTS.filter((p) => p.view === view).map((p) => (
                 <button
                   key={p.id}
                   onClick={() => setPart(p.id)}
@@ -282,7 +377,7 @@ export default function DrawingBoard({ layers, drawn, onChange }: Props) {
               {COLORS.map((c) => (
                 <button
                   key={c}
-                  onClick={() => setColor(c)}
+                  onClick={() => chooseColor(c)}
                   aria-label={c}
                   className={`size-7 rounded-full ring-1 ${color === c ? "ring-2 ring-sky" : "ring-white/20"}`}
                   style={{ background: c }}
@@ -291,11 +386,15 @@ export default function DrawingBoard({ layers, drawn, onChange }: Props) {
               <input
                 type="color"
                 value={color}
-                onChange={(e) => setColor(e.target.value.toUpperCase())}
+                onChange={(e) => chooseColor(e.target.value.toUpperCase())}
                 className="h-7 w-9 cursor-pointer rounded bg-transparent"
                 aria-label="Any colour"
               />
             </div>
+            <p className="mt-2 text-xs text-muted">
+              With the Fill tool on, click a colour to paint the selected body
+              part, or click a part on the figure. It changes in both views.
+            </p>
           </div>
 
           <div>
