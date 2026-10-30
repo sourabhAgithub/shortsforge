@@ -29,7 +29,8 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 AIVIDEO_DIR = DATA_DIR / "aivideo"  # per-project uploads and footage for the AI Video tool
 RANKING_DIR = DATA_DIR / "ranking"  # per-project external audio for the Ranking tool
 VIDEOGEN_DIR = DATA_DIR / "videogen"  # per-project video and audio for the Video Generator
-VOICEOVER_DIR = DATA_DIR / "voiceover"  # MP3s made by the AI Voiceover tool
+VOICEOVER_DIR = DATA_DIR / "voiceover"  # MP3s made by the Voice Generator
+PUPPET_DIR = DATA_DIR / "puppet"  # per-project drawn body parts for Story Puppets
 
 ASSETS_DIR = ROOT / "assets"
 FONT_PATH = ASSETS_DIR / "fonts" / "Montserrat-Black.ttf"
@@ -40,5 +41,5 @@ APP_NAME = "ShortsForge"
 
 def ensure_dirs() -> None:
     for d in (DOWNLOADS_DIR, PROJECTS_DIR, OUTPUTS_DIR, WORK_DIR, BIN_DIR, AIVIDEO_DIR, RANKING_DIR,
-              VIDEOGEN_DIR, VOICEOVER_DIR):
+              VIDEOGEN_DIR, VOICEOVER_DIR, PUPPET_DIR):
         d.mkdir(parents=True, exist_ok=True)

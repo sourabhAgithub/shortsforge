@@ -8,6 +8,7 @@ import {
   type LucideIcon,
   MessageCircleMore,
   MessageSquareQuote,
+  PersonStanding,
   ScrollText,
   Scissors,
   Sparkles,
@@ -15,6 +16,7 @@ import {
   Video,
 } from "lucide-react";
 import AiVideoTool from "./aivideo/AiVideoTool";
+import PuppetTool from "./puppet/PuppetTool";
 import RankingTool from "./ranking/RankingTool";
 import VideoGenTool from "./videogen/VideoGenTool";
 import VoiceoverTool from "./voiceover/VoiceoverTool";
@@ -75,6 +77,16 @@ export const TOOLS: ToolDef[] = [
     status: "ready",
     cta: "Start Voicing",
     component: VoiceoverTool,
+  },
+  {
+    id: "puppet",
+    name: "Story Puppets",
+    description: "Pick or draw a character, give it actions, and make a story video.",
+    icon: PersonStanding,
+    group: "Create",
+    status: "ready",
+    cta: "Start a Story",
+    component: PuppetTool,
   },
   {
     id: "commentary",

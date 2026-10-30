@@ -2,7 +2,7 @@
 
 Make faceless YouTube Shorts on your own computer. It's free, there's no login, and it uses no paid services.
 
-Four tools work today:
+Five tools work today:
 
 - **Ranking Video:** paste 3–10 clip links, give each one a caption, and get a 1080×1920 countdown Short. It
   has a bold two-line title at the top and a rank list down the side that fills in as each clip plays.
@@ -13,6 +13,8 @@ Four tools work today:
   make captions automatically from the speech, and put text anywhere on screen.
 - **Voice Generator:** type a script, pick a language and voice, and download it as an MP3. It has hundreds of
   natural voices in over 70 languages, including Hindi, Tamil, Malayalam and Telugu.
+- **Story Puppets:** pick a ready-made character or draw your own, give it actions like walk, wave or fall, and
+  get a story video.
 
 The other tools in the sidebar are marked "Coming soon".
 
@@ -213,7 +215,20 @@ file (see *Optional API keys*) and restart. Its voices appear first in the **Lan
 charges per character of script; its free plan only covers a few minutes a month. To use an MP3 in a video, upload it as
 the voiceover in the Multiple Clip Generator or as external audio in the Video Generator.
 
-## 7. Fixing download problems
+## 7. Make a story video (Story Puppets)
+
+1. Click **Story Puppets**, then **Create Story**. The live preview sits on the right (below on a phone).
+2. **Your character:** click a ready-made character (Stick figure, Girl, Boy, Mother, Father or Grandma), then
+   change anything you like, or draw every part yourself. Pick a **body part**, then use the pen, circle, box or
+   line in any colour. Stay inside the blue box: the dot is the joint that part turns around.
+3. **What happens:** add actions in order (Stand, Walk, Run, Wave, Nod, Tremble, Point, Cheer, Jump, Sit down, Fall
+   over) and set how long each lasts. Turn on **Move across the screen** to walk the character to a new spot.
+4. **Scene:** sky and ground colours, where the character starts, and its size.
+5. **Render video:** a 1080×1920 MP4 saved to My Videos.
+
+This first version has one character and no voice yet. Scenes, voiceover and captions come next.
+
+## 8. Fixing download problems
 
 **"The site asked for a login or is rate-limiting downloads" (common with Instagram)**
 
@@ -267,6 +282,7 @@ Everything stays in the `data` folder next to this file:
 | `data/projects/` | your projects (JSON, one folder per tool) |
 | `data/aivideo/` | Multiple Clip Generator uploads and generated footage, one folder per project (deleted with the project) |
 | `data/videogen/` | Video Generator videos and audio, one folder per project (deleted with the project) |
+| `data/puppet/` | Story Puppets drawings, one folder per project (deleted with the project) |
 | `data/voiceover/` | Voice Generator MP3s (the 50 newest are kept) |
 | `data/outputs/` | finished videos and their thumbnails |
 
@@ -292,6 +308,8 @@ backend/app/
                      auto captions (reuses aivideo's speech recognition), API
   tools/voiceover/   text to speech MP3s: edge-tts voices, optional ElevenLabs (elevenlabs.py), delivery
                      tags turned into pauses + prosody for edge-tts (tags.py), saved history, API
+  tools/puppet/      paper-cut puppets: motion library + pose timeline (motions.py; the preview draws
+                     these same poses), Pillow frames piped to FFmpeg (render.py), API
   textdraw.py        outlined text with colour emoji (uses the system emoji font)
 frontend/src/
   tools/registry.tsx tool list shown in the sidebar/dashboard
