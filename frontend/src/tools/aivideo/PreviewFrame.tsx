@@ -432,7 +432,25 @@ export default function PreviewFrame({
               style={{ top: CAPTION_CY, transform: "translateY(-50%)" }}
             >
               {capLines.map((l, k) => (
-                <Outlined key={k} text={l} size={capSize} ratio={0.11} />
+                <Outlined
+                  key={k}
+                  size={capSize}
+                  ratio={0.11}
+                  text={l.split(" ").map((w, j) => (
+                    <span
+                      key={j}
+                      style={{
+                        color:
+                          project.caption_highlights[normWord(w)] ??
+                          cue.color ??
+                          project.caption_color,
+                      }}
+                    >
+                      {j ? " " : ""}
+                      {w}
+                    </span>
+                  ))}
+                />
               ))}
             </div>
           )}

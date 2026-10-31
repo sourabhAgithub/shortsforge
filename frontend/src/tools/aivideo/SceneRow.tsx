@@ -211,10 +211,10 @@ export default function SceneRow({
           className="input resize-y"
         />
         <div className="grid items-start gap-x-2 gap-y-2.5 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="label mb-0">On-screen label</span>
-              {labelsOn ? (
+          {labelsOn && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="label mb-0">On-screen label</span>
                 <label className="flex items-center gap-2 text-[11px] text-muted">
                   Show
                   <Switch
@@ -223,46 +223,44 @@ export default function SceneRow({
                     label="Show the label in this scene"
                   />
                 </label>
-              ) : (
-                <span className="text-[11px] text-muted">
-                  Off for the whole video
-                </span>
+              </div>
+              <input
+                value={scene.label}
+                onChange={(e) => onChange({ label: e.target.value })}
+                placeholder='On-screen label, e.g. "61 km²"'
+                className="input"
+              />
+              {scene.label.trim() && (
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+                  <span>Show from</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={scene.label_start ?? ""}
+                    placeholder="start"
+                    onChange={(e) =>
+                      onChange({ label_start: num(e.target.value) })
+                    }
+                    className="input w-16 px-2 py-1 text-xs"
+                  />
+                  <span>to</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={scene.label_end ?? ""}
+                    placeholder="end"
+                    onChange={(e) =>
+                      onChange({ label_end: num(e.target.value) })
+                    }
+                    className="input w-16 px-2 py-1 text-xs"
+                  />
+                  <span>s</span>
+                </div>
               )}
             </div>
-            <input
-              value={scene.label}
-              onChange={(e) => onChange({ label: e.target.value })}
-              placeholder='On-screen label, e.g. "61 km²"'
-              className={`input ${labelsOn ? "" : "opacity-40"}`}
-            />
-            {scene.label.trim() && (
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-                <span>Show from</span>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={scene.label_start ?? ""}
-                  placeholder="start"
-                  onChange={(e) =>
-                    onChange({ label_start: num(e.target.value) })
-                  }
-                  className="input w-16 px-2 py-1 text-xs"
-                />
-                <span>to</span>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={scene.label_end ?? ""}
-                  placeholder="end"
-                  onChange={(e) => onChange({ label_end: num(e.target.value) })}
-                  className="input w-16 px-2 py-1 text-xs"
-                />
-                <span>s</span>
-              </div>
-            )}
-          </div>
+          )}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="label mb-0">Ranking list</span>

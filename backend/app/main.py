@@ -171,6 +171,6 @@ def spa(path: str):
     if path and candidate.is_file() and FRONTEND_DIST.resolve() in candidate.parents:
         return FileResponse(candidate)
     index = FRONTEND_DIST / "index.html"
-    if index.exists():
-        return FileResponse(index)
+    if index.exists():  # always asked for afresh, so a new build shows up without a hard refresh
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
     return JSONResponse({"detail": "The UI isn't built yet. Run the start script again."}, 503)

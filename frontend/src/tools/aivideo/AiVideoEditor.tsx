@@ -45,6 +45,7 @@ import {
   newScene,
   resolveTimings,
   type Scene,
+  withSoundDefaults,
 } from "./types";
 
 const SAMPLE = `| Time | Voiceover | On screen |
@@ -103,7 +104,8 @@ export default function AiVideoEditor() {
 
   useEffect(() => {
     api<AiProject>(`/api/aivideo/projects/${id}`)
-      .then((p) => {
+      .then((loaded) => {
+        const p = withSoundDefaults(loaded);
         latest.current = p;
         setProject(p);
         if (p.scenes.length) setTab("scenes");
@@ -314,7 +316,10 @@ export default function AiVideoEditor() {
                 start: r.start,
                 end: r.end,
                 // Empty = nothing is said in this scene, so no captions.
-                captions: r.captions,
+                captions: r.captions.map((c) => ({
+                  ...c,
+                  color: sc.captions?.find((o) => o.text === c.text)?.color,
+                })),
               }
             : sc;
         }),
@@ -675,6 +680,10 @@ export default function AiVideoEditor() {
             )}
           </div>
           {errors.music && <ErrorLine>{errors.music}</ErrorLine>}
+          <p className="mt-2 text-xs text-muted">
+            Knocks, rain and other sound effects go on their own track in the
+            timeline (step 6).
+          </p>
           {project.music && (
             <div className="mt-4 max-w-sm">
               <div className="mb-2 flex justify-between text-sm">
@@ -729,6 +738,7 @@ export default function AiVideoEditor() {
             project={project}
             timings={timings}
             onScenes={(fn) => update((p) => ({ ...p, scenes: fn(p.scenes) }))}
+            onProject={update}
             onSync={autoSync}
             syncJob={syncJob}
             syncing={syncing}

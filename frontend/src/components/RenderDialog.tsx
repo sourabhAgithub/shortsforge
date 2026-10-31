@@ -1,6 +1,7 @@
-import { AlertCircle, CheckCircle2, Download, Film, Loader2, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Film, Loader2, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Job, Video } from "../api";
+import SaveVideoButton from "./SaveVideoButton";
 
 export type RenderState = { job: Job<Video> | null; error?: string; video?: Video };
 
@@ -54,9 +55,9 @@ export default function RenderDialog({ state, onClose }: { state: RenderState; o
             </div>
             <video src={video.video} controls autoPlay className="mx-auto mt-5 max-h-[60vh] rounded-xl bg-black" />
             <div className="mt-5 flex gap-2">
-              <a href={video.download} className="btn-primary flex-1">
-                <Download className="size-4" /> Download MP4
-              </a>
+              <SaveVideoButton video={video} className="btn-primary flex-1">
+                Download MP4
+              </SaveVideoButton>
               <Link to="/videos" className="btn-ghost">
                 <Film className="size-4" /> My Videos
               </Link>

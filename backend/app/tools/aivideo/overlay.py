@@ -40,9 +40,10 @@ def norm_word(w: str) -> str:
     return re.sub(r"[^\w]", "", w.lower())
 
 
-def _title_block(lines: list[str], size: int, color: str, highlights: dict[str, str]) -> Image.Image:
+def _title_block(lines: list[str], size: int, color: str, highlights: dict[str, str],
+                 ratio: float = 0.09) -> Image.Image:
     """Like _lines_block, but each word can have its own colour."""
-    stroke = _stroke(size)
+    stroke = _stroke(size, ratio)
     line_h = round(size * 1.18)
     space = td.measure(" ", size)
     widths = [[td.measure(w, size) for w in line.split()] for line in lines]
@@ -135,10 +136,10 @@ def label_image(text: str) -> Image.Image | None:
     return img
 
 
-def caption_image(text: str) -> Image.Image | None:
+def caption_image(text: str, color: str = "#FFFFFF", highlights: dict[str, str] | None = None) -> Image.Image | None:
     text = " ".join(text.split())
     if not td.runs(text):
         return None
     lines = td.wrap_balanced(text, 1000, 80)
     size = td.fit_size(lines, 1000, 84)
-    return _lines_block(lines, size, "white", 0.11)
+    return _title_block(lines, size, color, highlights or {}, 0.11)

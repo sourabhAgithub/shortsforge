@@ -1,7 +1,8 @@
-import { Download, Film, Play, Trash2, X } from "lucide-react";
+import { Film, Play, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, formatDate, formatSeconds, type Video } from "../api";
+import SaveVideoButton from "../components/SaveVideoButton";
 
 export default function MyVideos() {
   const [videos, setVideos] = useState<Video[] | null>(null);
@@ -55,9 +56,9 @@ export default function MyVideos() {
               </p>
               <p className="mt-0.5 text-xs text-muted">{formatDate(v.created_at)}</p>
               <div className="mt-3 flex gap-2">
-                <a href={v.download} className="btn-ghost flex-1 px-3 py-1.5 text-xs">
-                  <Download className="size-3.5" /> Download
-                </a>
+                <SaveVideoButton video={v} className="btn-ghost flex-1 px-3 py-1.5 text-xs">
+                  Download
+                </SaveVideoButton>
                 <button onClick={() => remove(v)} className="btn-ghost px-3 py-1.5 text-xs hover:text-red-300" title="Delete">
                   <Trash2 className="size-3.5" />
                 </button>

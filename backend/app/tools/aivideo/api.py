@@ -14,7 +14,7 @@ from ...ffmpeg_util import FFmpegError, probe
 from . import footage as ft
 from .models import AiProject, Footage, MediaFile
 from .render import fill_footage, render, usable
-from .script import parse_table
+from .script import parse_table, repair_scenes
 
 router = APIRouter()
 STORE = PROJECTS_DIR / "aivideo"
@@ -67,9 +67,12 @@ def create_project() -> AiProject:
 @router.get("/projects/{project_id}")
 def get_project(project_id: str) -> AiProject:
     p = load(project_id)
+    if repair_scenes(p):
+        save(p)
     for s in p.scenes:  # drop references to files that were deleted
         if s.footage and not usable(p.id, s.footage):
             s.footage = None
+    p.sounds = [c for c in p.sounds if (ft.project_dir(p.id) / c.file).exists()]
     return p
 
 
@@ -109,11 +112,11 @@ def _receive(project_id: str, file: UploadFile, allowed: set[str], what: str):
     return tmp, ext
 
 
-def _audio(project_id: str, file: UploadFile, prefix: str) -> MediaFile:
+def _audio(project_id: str, file: UploadFile, prefix: str, shortest: float = 0.5) -> MediaFile:
     tmp, ext = _receive(project_id, file, AUDIO_EXTS, "an audio file (MP3 or WAV)")
     try:
         info = probe(tmp)
-        if not info.has_audio or info.duration < 0.5:
+        if not info.has_audio or info.duration < shortest:
             raise FFmpegError("no audio")
     except FFmpegError:
         tmp.unlink(missing_ok=True)
@@ -132,6 +135,35 @@ def upload_voiceover(project_id: str, file: UploadFile) -> MediaFile:
 @router.post("/projects/{project_id}/music")
 def upload_music(project_id: str, file: UploadFile) -> MediaFile:
     return _audio(project_id, file, "music")
+
+
+@router.post("/projects/{project_id}/sounds")
+def upload_sound(project_id: str, file: UploadFile) -> MediaFile:
+    return _audio(project_id, file, "sound", shortest=0.05)  # a single knock can be very short
+
+
+class SoundDownload(BaseModel):
+    url: str
+    title: str = ""
+
+
+@router.get("/sound-options")
+def sound_options(name: str) -> list[dict]:
+    """Free downloads for a named sound."""
+    from .sfx import find_options
+
+    return find_options(name)
+
+
+@router.post("/projects/{project_id}/fetch-sound")
+def fetch_sound(project_id: str, req: SoundDownload) -> MediaFile:
+    """Download a sound from the free library into the project, ready to play and place."""
+    from .sfx import fetch
+
+    try:
+        return fetch(project_id, req.url, req.title)
+    except jobs.UserError as e:
+        raise HTTPException(400, str(e)) from None
 
 
 @router.post("/projects/{project_id}/scene-upload")
@@ -203,6 +235,26 @@ def auto_sync(project_id: str, p: AiProject) -> dict:
                 "heard": " ".join(w for w, _, _ in heard), "unmatched": unmatched}
 
     return jobs.submit("sync", work, pool="footage").to_dict()
+
+
+@router.post("/projects/{project_id}/suggest-sounds")
+def suggest_sounds(project_id: str, p: AiProject) -> dict:
+    """Ideas for where sound effects would help, for the sounds added so far and for new ones."""
+    from .script import is_blank
+    from .suggest import suggest
+
+    p.id = project_id
+    if not p.voiceover:
+        raise HTTPException(400, "Upload a voiceover first.")
+    if not p.scenes or all(is_blank(s) for s in p.scenes):
+        raise HTTPException(400, "Add your script (step 3) first, so there's a story to work from.")
+    total = probe(ft.project_dir(project_id) / p.voiceover.file).duration
+
+    def work(job: jobs.Job) -> dict:
+        job.update(0.2, "Reading your script…")
+        return suggest(p, total, job.update)
+
+    return jobs.submit("suggest", work, pool="footage").to_dict()
 
 
 @router.post("/projects/{project_id}/render")

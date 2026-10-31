@@ -2,7 +2,7 @@
 import math
 import re
 
-from .models import Scene
+from .models import AiProject, Scene
 
 _QUOTES = re.compile(r'"([^"]+)"|“([^”]+)”')
 # Words that only introduce the quoted on-screen text ("big text", "label") and aren't visuals.
@@ -14,6 +14,7 @@ _RANK = re.compile(r"^\s*(?:(?:and|at|coming\s+in\s+at)\s+)?(?:#|no\.?\s*|number
                    r"(\d{1,2}|" + "|".join(_NUMBER_WORDS) + r")\b[\s:.\-–—]*([^:,.;–—\-!?]*)", re.I)
 _TIME = r"(\d+(?::\d{1,2})?(?:\.\d+)?)"
 _RANGE = re.compile(_TIME + r"\s*s?\s*(?:-|–|—|to)\s*" + _TIME + r"\s*s?", re.I)
+_TAG = re.compile(r"\[[a-z][a-z' -]*\]", re.I)  # delivery tags like [whispers] or [long pause]
 
 HEADERS = {
     "time": ("time", "timing", "timestamp", "when"),
@@ -22,6 +23,18 @@ HEADERS = {
     # A first column like "Hook / #5 / #4 / Outro". If there's no other visuals column, it's the visuals.
     "rank": ("rank", "scene", "#", "no", "no.", "position", "place"),
 }
+# Headers of a few words, like "Voice line" or "Image prompt": any one of these words is enough.
+HEADER_WORDS = {
+    "voiceover": {"voice", "voiceover", "narration", "narrator", "spoken", "speech", "dialogue", "line",
+                  "lines", "script", "vo"},
+    "screen": {"image", "images", "picture", "photo", "visual", "visuals", "shot", "screen", "footage",
+               "prompt", "video", "description"},
+}
+
+
+def speech(text: str) -> str:
+    """What is actually said: delivery tags aren't spoken, so they're never captions."""
+    return " ".join(_TAG.sub(" ", text or "").split())
 
 
 def _seconds(v: str) -> float:
@@ -92,6 +105,20 @@ def is_blank(scene: Scene) -> bool:
     return not (scene.voiceover.strip() or scene.label.strip() or scene.prompt.strip() or scene.upload)
 
 
+def _time_column(rows: list[list[str]]) -> int | None:
+    """The column that holds time ranges, whatever it's called."""
+    for i in range(max(map(len, rows))):
+        if sum(i < len(r) and bool(_RANGE.search(r[i])) for r in rows) > len(rows) / 2:
+            return i
+    return None
+
+
+def _longest_free(rows: list[list[str]], taken: set[int]) -> list[int]:
+    """Columns nobody has claimed, most words first: spoken lines are usually the longest."""
+    free = [i for i in range(max(map(len, rows))) if i not in taken]
+    return sorted(free, key=lambda i: -sum(len(r[i].split()) for r in rows if i < len(r)))
+
+
 def parse_table(text: str) -> list[Scene]:
     rows = _rows(text)
     rows = [r for r in rows if not all(re.fullmatch(r":?-{2,}:?", c or "-") for c in r)]
@@ -99,24 +126,40 @@ def parse_table(text: str) -> list[Scene]:
         return []
     cols: dict[str, int | None] = {"time": 0, "voiceover": 1, "screen": 2, "rank": None}
     header = [c.lower() for c in rows[0]]
-    if any(h in names for h in header for names in HEADERS.values()):
+    if any(h in names for h in header for names in HEADERS.values()) or \
+            any(set(h.split()) & words for h in header for words in HEADER_WORDS.values()):
         found = {}
         for key, names in HEADERS.items():
             for i, h in enumerate(header):
                 if h in names and i not in found.values():
                     found[key] = i
                     break
+        for key, words in HEADER_WORDS.items():
+            for i, h in enumerate(header):
+                if key not in found and i not in found.values() and set(h.split()) & words:
+                    found[key] = i
         if "screen" not in found and "rank" in found and header[found["rank"]] == "scene":
             found["screen"] = found.pop("rank")
-        cols.update(found)
         rows = rows[1:]
+        if not rows:
+            return []
+        if "time" not in found and (at := _time_column(rows)) is not None:
+            found["time"] = at
+        free = _longest_free(rows, set(found.values()))
+        for key in ("voiceover", "screen"):
+            if key not in found:
+                found[key] = free.pop(0) if free else None
+        cols.update(found)
+    elif (at := _time_column(rows)) not in (None, 0):  # no header, and the times aren't first
+        free = _longest_free(rows, {at})
+        cols.update(time=at, voiceover=free[0], screen=free[1] if len(free) > 1 else None)
 
     scenes = []
     for r in rows:
         get = lambda k: r[cols[k]] if cols[k] is not None and cols[k] < len(r) else ""
         start, end = parse_time_range(get("time"))
         voiceover = _unquote(get("voiceover"))
-        label, prompt = split_on_screen(get("screen"))
+        label, prompt = split_on_screen(re.sub(r"^\d+\s*[:.)]\s*", "", get("screen")))  # "1: Building"
         rank, name = parse_rank(voiceover)
         if rank is None:
             cell = get("rank").strip()
@@ -128,8 +171,21 @@ def parse_table(text: str) -> list[Scene]:
     return scenes
 
 
+def repair_scenes(p: AiProject) -> bool:
+    """Scenes saved when the parser put the times in the voiceover: read the script again."""
+    if not p.scenes or not all(_RANGE.fullmatch(s.voiceover.strip()) for s in p.scenes):
+        return False
+    fresh = parse_table(p.script_text)
+    if len(fresh) != len(p.scenes) or any(_RANGE.fullmatch(f.voiceover.strip()) for f in fresh):
+        return False
+    for s, f in zip(p.scenes, fresh):
+        s.voiceover, s.prompt, s.label, s.start, s.end = f.voiceover, f.prompt, f.label, f.start, f.end
+        s.captions = None  # they came from the bad match
+    return True
+
+
 def word_count(text: str) -> int:
-    return len(re.findall(r"\w+", text or ""))
+    return len(re.findall(r"\w+", speech(text)))
 
 
 def resolve_timings(scenes: list[Scene], total: float) -> list[tuple[float, float]]:
@@ -161,7 +217,7 @@ def resolve_timings(scenes: list[Scene], total: float) -> list[tuple[float, floa
 
 def caption_chunks(text: str) -> list[str]:
     """Split into chunks of 2–4 words (3 where possible), sizes as even as possible."""
-    words = text.split()
+    words = speech(text).split()
     if not words:
         return []
     if len(words) <= 4:

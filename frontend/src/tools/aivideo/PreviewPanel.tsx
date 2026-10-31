@@ -7,32 +7,45 @@ import {
   Plus,
   RotateCcw,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
+  useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
 import { formatSeconds, type Job } from "../../api";
 import Switch from "../../components/Switch";
+import { normWord } from "../ranking/layout";
 import PreviewFrame from "./PreviewFrame";
+import SoundEditor from "./SoundEditor";
+import SoundPanel from "./SoundPanel";
+import TitleColors from "./TitleColors";
 import {
   type AiProject,
   type Cue,
   labelWindow,
   type Scene,
   sceneCues,
+  type SoundClip,
+  soundPlayed,
+  soundRows,
 } from "./types";
 
 const MIN_SCENE = 0.3;
 const MIN_CUE = 0.2;
+const MIN_SOUND = 0.1;
+const CLICK_SLOP = 4; // pixels; less movement than this is a click, not a drag
+const SOUND_ROW = 30;
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
 type Props = {
   project: AiProject;
   timings: [number, number][];
   onScenes: (fn: (scenes: Scene[]) => Scene[]) => void;
+  onProject: (fn: (p: AiProject) => AiProject) => void;
   onSync: () => void;
   syncJob: Job | null;
   syncing: boolean;
@@ -53,6 +66,7 @@ export default function PreviewPanel({
   project,
   timings,
   onScenes,
+  onProject,
   onSync,
   syncJob,
   syncing,
@@ -62,21 +76,56 @@ export default function PreviewPanel({
   const voice = useRef<HTMLAudioElement>(null);
   const music = useRef<HTMLAudioElement>(null);
   const track = useRef<HTMLDivElement>(null);
+  const players = useRef(new Map<string, HTMLAudioElement>());
+  const sounds = useRef(project.sounds);
+  sounds.current = project.sounds;
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const total = project.voiceover?.duration ?? 0;
   const s = project.settings;
 
   useEffect(() => {
-    if (!playing) return;
+    if (!playing) {
+      music.current?.pause();
+      players.current.forEach((el) => {
+        el.pause();
+        el.muted = true;
+      });
+      return;
+    }
     let raf = 0;
     const tick = () => {
-      if (voice.current) setT(voice.current.currentTime);
-      raf = requestAnimationFrame(tick);
+      raf = requestAnimationFrame(tick); // first, so one bad sound can't stop the picture
+      if (voice.current) {
+        setT(voice.current.currentTime);
+        driveSounds(voice.current.currentTime);
+      }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [playing]);
+
+  /** Each player runs only while the playhead is inside its clip. */
+  function driveSounds(at: number) {
+    for (const c of sounds.current) {
+      const el = players.current.get(c.id);
+      if (!el) continue;
+      if (at < c.start || at >= c.start + c.length) {
+        el.muted = true;
+        if (!el.paused) el.pause();
+        continue;
+      }
+      const want = c.trim_start + ((at - c.start) % soundPlayed(c)) * c.speed;
+      el.playbackRate = c.speed;
+      if (el.paused || el.muted || Math.abs(el.currentTime - want) > 0.3)
+        el.currentTime = want;
+      el.volume = c.volume;
+      el.muted = false;
+      if (el.paused) el.play().catch(() => {});
+    }
+  }
 
   function syncMusic(at: number) {
     const m = music.current;
@@ -90,13 +139,14 @@ export default function PreviewPanel({
     if (!v) return;
     if (playing) {
       v.pause();
-      music.current?.pause();
       setPlaying(false);
     } else {
       if (v.ended || v.currentTime >= total - 0.05) v.currentTime = 0;
       syncMusic(v.currentTime);
       v.play();
       music.current?.play().catch(() => {});
+      // Started here, on the tap, so browsers allow them to be heard later.
+      players.current.forEach((el) => el.play().catch(() => {}));
       setPlaying(true);
     }
   }
@@ -215,6 +265,53 @@ export default function PreviewPanel({
     });
   }
 
+  const closeSound = useCallback(() => setEditing(null), []);
+
+  function openSound(id: string) {
+    setPicked(id);
+    setEditing(id);
+  }
+
+  const patchSound = (id: string, patch: Partial<SoundClip>) =>
+    onProject((p) => ({
+      ...p,
+      sounds: p.sounds.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+    }));
+
+  function dragSound(
+    e: ReactPointerEvent,
+    c0: SoundClip,
+    mode: "move" | "length",
+  ) {
+    setPicked(c0.id);
+    const grab = timeAt(e.clientX);
+    const x0 = e.clientX;
+    if (mode === "move")
+      e.currentTarget.addEventListener(
+        "pointerup",
+        (ev) => {
+          if (Math.abs((ev as PointerEvent).clientX - x0) >= CLICK_SLOP) return;
+          patchSound(c0.id, { start: c0.start }); // a click, however shaky, isn't a move
+          openSound(c0.id);
+        },
+        { once: true },
+      );
+    drag(e, (time) => {
+      if (mode === "length")
+        patchSound(c0.id, {
+          length: r2(
+            Math.min(Math.max(time - c0.start, MIN_SOUND), total - c0.start),
+          ),
+        });
+      else
+        patchSound(c0.id, {
+          start: r2(
+            Math.min(Math.max(c0.start + time - grab, 0), total - MIN_SOUND),
+          ),
+        });
+    });
+  }
+
   if (!project.voiceover || !project.scenes.length) {
     return (
       <p className="text-sm text-muted">
@@ -235,6 +332,18 @@ export default function PreviewPanel({
     { length: Math.floor(total / 5) + 1 },
     (_, k) => k * 5,
   );
+  const rows = soundRows(project.sounds);
+  const editingClip = project.sounds.find((c) => c.id === editing);
+  const rowCount = Math.max(1, ...[...rows.values()].map((r) => r + 1));
+  const captionWords = [
+    ...new Map(
+      timings
+        .flatMap((_, i) => cuesOf(i))
+        .flatMap((c) => c.text.split(/\s+/))
+        .filter(normWord)
+        .map((w) => [normWord(w), w]),
+    ).values(),
+  ];
 
   return (
     <div>
@@ -282,6 +391,19 @@ export default function PreviewPanel({
           {project.music && (
             <audio ref={music} src={project.music.url} preload="auto" loop />
           )}
+          {project.sounds.map((c) => (
+            <audio
+              key={c.id}
+              ref={(el) => {
+                if (el) players.current.set(c.id, el);
+                else players.current.delete(c.id);
+              }}
+              src={c.url}
+              preload="auto"
+              loop
+              muted
+            />
+          ))}
           <p className="mt-2 text-center text-[11px] text-muted/70">
             Preview (rendered video may differ slightly)
           </p>
@@ -368,45 +490,49 @@ export default function PreviewPanel({
               ))}
             </div>
 
-            <div className="mt-3 text-[10px] font-semibold tracking-wide text-muted uppercase">
-              Labels · drag to move, edges to resize
-            </div>
-            <div className="relative mt-1 h-9 rounded-lg bg-ink ring-1 ring-line">
-              {timings.map(([a, b], i) => {
-                const sc = project.scenes[i];
-                if (
-                  !sc.label.trim() ||
-                  sc.show_label === false ||
-                  s.labels === false
-                )
-                  return null;
-                const [l0, l1] = labelWindow(sc, a, b);
-                const custom = sc.label_start !== null || sc.label_end !== null;
-                return (
-                  <div
-                    key={sc.id}
-                    onPointerDown={(e) => dragLabel(e, i, "move")}
-                    className={`absolute inset-y-1 cursor-grab overflow-hidden rounded border text-[9px] leading-6 whitespace-nowrap active:cursor-grabbing ${
-                      custom
-                        ? "border-sky/70 bg-brand/40"
-                        : "border-brand/40 bg-brand/20"
-                    }`}
-                    style={{ left: pct(l0), width: pct(Math.max(l1 - l0, 0)) }}
-                    title={`${sc.label} (${l0.toFixed(2)}–${l1.toFixed(2)}s)`}
-                  >
-                    <span
-                      onPointerDown={(e) => dragLabel(e, i, "start")}
-                      className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-white/50 pointer-coarse:w-3"
-                    />
-                    <span className="px-1.5">{sc.label}</span>
-                    <span
-                      onPointerDown={(e) => dragLabel(e, i, "end")}
-                      className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-white/50 pointer-coarse:w-3"
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            {s.labels !== false && (
+              <>
+                <div className="mt-3 text-[10px] font-semibold tracking-wide text-muted uppercase">
+                  Labels · drag to move, edges to resize
+                </div>
+                <div className="relative mt-1 h-9 rounded-lg bg-ink ring-1 ring-line">
+                  {timings.map(([a, b], i) => {
+                    const sc = project.scenes[i];
+                    if (!sc.label.trim() || sc.show_label === false)
+                      return null;
+                    const [l0, l1] = labelWindow(sc, a, b);
+                    const custom =
+                      sc.label_start !== null || sc.label_end !== null;
+                    return (
+                      <div
+                        key={sc.id}
+                        onPointerDown={(e) => dragLabel(e, i, "move")}
+                        className={`absolute inset-y-1 cursor-grab overflow-hidden rounded border text-[9px] leading-6 whitespace-nowrap active:cursor-grabbing ${
+                          custom
+                            ? "border-sky/70 bg-brand/40"
+                            : "border-brand/40 bg-brand/20"
+                        }`}
+                        style={{
+                          left: pct(l0),
+                          width: pct(Math.max(l1 - l0, 0)),
+                        }}
+                        title={`${sc.label} (${l0.toFixed(2)}–${l1.toFixed(2)}s)`}
+                      >
+                        <span
+                          onPointerDown={(e) => dragLabel(e, i, "start")}
+                          className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-white/50 pointer-coarse:w-3"
+                        />
+                        <span className="px-1.5">{sc.label}</span>
+                        <span
+                          onPointerDown={(e) => dragLabel(e, i, "end")}
+                          className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-white/50 pointer-coarse:w-3"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
             {s.captions && (
               <>
@@ -445,11 +571,73 @@ export default function PreviewPanel({
                 </div>
               </>
             )}
+
+            <div className="mt-3 text-[10px] font-semibold tracking-wide text-muted uppercase">
+              Sound effects · click to trim, drag to move, right edge to change
+              length
+            </div>
+            <div
+              className="relative mt-1 overflow-hidden rounded-lg bg-ink ring-1 ring-line"
+              style={{ height: rowCount * SOUND_ROW + 6 }}
+            >
+              {project.sounds.map((c) => (
+                <div
+                  key={c.id}
+                  onPointerDown={(e) => dragSound(e, c, "move")}
+                  className={`absolute min-w-3 cursor-grab overflow-hidden rounded border text-[9px] leading-6 whitespace-nowrap active:cursor-grabbing ${
+                    picked === c.id
+                      ? "border-white bg-emerald-400/40"
+                      : "border-emerald-400/60 bg-emerald-400/20"
+                  }`}
+                  style={{
+                    left: pct(c.start),
+                    width: pct(c.length),
+                    top: 3 + (rows.get(c.id) ?? 0) * SOUND_ROW,
+                    height: SOUND_ROW - 4,
+                  }}
+                  title={`${c.name} (${c.start.toFixed(2)}–${(c.start + c.length).toFixed(2)}s)`}
+                >
+                  <span className="px-1.5">{c.name}</span>
+                  <span
+                    onPointerDown={(e) => dragSound(e, c, "length")}
+                    className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-white/50 pointer-coarse:w-3"
+                  />
+                </div>
+              ))}
+            </div>
             <div
               className="pointer-events-none absolute top-5 bottom-0 z-20 w-0.5 bg-red-400"
               style={{ left: pct(t) }}
             />
           </div>
+
+          <SoundPanel
+            project={project}
+            t={t}
+            total={total}
+            picked={picked}
+            onPick={setPicked}
+            onSeek={seek}
+            onChange={patchSound}
+            onEdit={openSound}
+            onProject={onProject}
+          />
+          {editingClip && (
+            <SoundEditor
+              clip={editingClip}
+              total={total}
+              onChange={patchSound}
+              onRemove={(id) => {
+                setEditing(null);
+                onProject((p) => ({
+                  ...p,
+                  sounds: p.sounds.filter((c) => c.id !== id),
+                }));
+              }}
+              onClose={closeSound}
+              onListen={() => playing && toggle()}
+            />
+          )}
 
           {/* label timing for the scene under the playhead */}
           {(() => {
@@ -457,18 +645,24 @@ export default function PreviewPanel({
             const [a, b] = timings[current];
             const [l0, l1] = labelWindow(sc, a, b);
             const custom = sc.label_start !== null || sc.label_end !== null;
+            const labels = s.labels !== false;
+            if (!labels && !s.ranking) return null;
             return (
               <div className="mt-5 rounded-xl bg-ink p-4 ring-1 ring-line">
-                <div className="mb-3 flex flex-wrap items-center gap-2">
+                <div
+                  className={`flex flex-wrap items-center gap-2 ${labels ? "mb-3" : ""}`}
+                >
                   <p className="text-sm font-semibold">
-                    Scene {current + 1} label
+                    Scene {current + 1} {labels ? "label" : "ranking list"}
                   </p>
-                  <span
-                    className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${custom ? "bg-sky/15 text-sky" : "bg-white/5 text-muted"}`}
-                  >
-                    {custom ? "Custom timing" : "Whole scene"}
-                  </span>
-                  {custom && (
+                  {labels && (
+                    <span
+                      className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${custom ? "bg-sky/15 text-sky" : "bg-white/5 text-muted"}`}
+                    >
+                      {custom ? "Custom timing" : "Whole scene"}
+                    </span>
+                  )}
+                  {labels && custom && (
                     <button
                       onClick={() =>
                         patchScene(current, {
@@ -482,7 +676,7 @@ export default function PreviewPanel({
                     </button>
                   )}
                   <div className="ml-auto flex items-center gap-4">
-                    {s.labels !== false && (
+                    {labels && (
                       <label className="flex items-center gap-2 text-xs text-muted">
                         Show label
                         <Switch
@@ -508,47 +702,49 @@ export default function PreviewPanel({
                     )}
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => seek(l0)}
-                    className="shrink-0 rounded p-1 text-muted hover:text-white"
-                    title="Jump here"
-                  >
-                    <Play className="size-3" />
-                  </button>
-                  <input
-                    value={sc.label}
-                    onChange={(e) =>
-                      patchScene(current, { label: e.target.value })
-                    }
-                    placeholder="No label for this scene, type one to add it"
-                    className="input min-w-[calc(100%-2rem)] flex-1 py-1.5 sm:min-w-0"
-                  />
-                  <input
-                    type="number"
-                    step={0.1}
-                    value={l0.toFixed(2)}
-                    disabled={!sc.label.trim()}
-                    onChange={(e) =>
-                      editLabel(current, Number(e.target.value), l1)
-                    }
-                    className="input w-20 py-1.5 text-xs disabled:opacity-40"
-                    title="Show at (seconds)"
-                  />
-                  <input
-                    type="number"
-                    step={0.1}
-                    value={l1.toFixed(2)}
-                    disabled={!sc.label.trim()}
-                    onChange={(e) =>
-                      editLabel(current, l0, Number(e.target.value))
-                    }
-                    className="input w-20 py-1.5 text-xs disabled:opacity-40"
-                    title="Hide at (seconds)"
-                  />
-                  <span className="hidden w-[22px] shrink-0 sm:block" />
-                </div>
-                {sc.label.trim() && (
+                {labels && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => seek(l0)}
+                      className="shrink-0 rounded p-1 text-muted hover:text-white"
+                      title="Jump here"
+                    >
+                      <Play className="size-3" />
+                    </button>
+                    <input
+                      value={sc.label}
+                      onChange={(e) =>
+                        patchScene(current, { label: e.target.value })
+                      }
+                      placeholder="No label for this scene, type one to add it"
+                      className="input min-w-[calc(100%-2rem)] flex-1 py-1.5 sm:min-w-0"
+                    />
+                    <input
+                      type="number"
+                      step={0.1}
+                      value={l0.toFixed(2)}
+                      disabled={!sc.label.trim()}
+                      onChange={(e) =>
+                        editLabel(current, Number(e.target.value), l1)
+                      }
+                      className="input w-20 py-1.5 text-xs disabled:opacity-40"
+                      title="Show at (seconds)"
+                    />
+                    <input
+                      type="number"
+                      step={0.1}
+                      value={l1.toFixed(2)}
+                      disabled={!sc.label.trim()}
+                      onChange={(e) =>
+                        editLabel(current, l0, Number(e.target.value))
+                      }
+                      className="input w-20 py-1.5 text-xs disabled:opacity-40"
+                      title="Hide at (seconds)"
+                    />
+                    <span className="hidden w-[22px] shrink-0 sm:block" />
+                  </div>
+                )}
+                {labels && sc.label.trim() && (
                   <button
                     onClick={() => editLabel(current, t, Math.max(l1, t + 1))}
                     className="btn-ghost mt-3 px-3 py-1.5 text-xs"
@@ -561,6 +757,23 @@ export default function PreviewPanel({
           })()}
 
           {/* caption editor for the scene under the playhead */}
+          {s.captions && (
+            <div className="mt-3 rounded-xl bg-ink p-4 ring-1 ring-line">
+              <p className="text-sm font-semibold">Caption colors</p>
+              <TitleColors
+                what="Caption"
+                title={captionWords.join(" ")}
+                color={project.caption_color}
+                highlights={project.caption_highlights}
+                onColor={(caption_color) =>
+                  onProject((p) => ({ ...p, caption_color }))
+                }
+                onHighlights={(caption_highlights) =>
+                  onProject((p) => ({ ...p, caption_highlights }))
+                }
+              />
+            </div>
+          )}
           {s.captions ? (
             <div className="mt-3 rounded-xl bg-ink p-4 ring-1 ring-line">
               <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -618,6 +831,36 @@ export default function PreviewPanel({
                           }
                           className="input min-w-[calc(100%-2rem)] flex-1 py-1.5 sm:min-w-0"
                         />
+                        <label
+                          className="relative size-6 shrink-0 cursor-pointer rounded-full ring-1 ring-white/25"
+                          style={{
+                            background: c.color ?? project.caption_color,
+                          }}
+                          title="Color of this caption"
+                        >
+                          <input
+                            type="color"
+                            value={(
+                              c.color ?? project.caption_color
+                            ).toLowerCase()}
+                            onChange={(e) =>
+                              editCue(current, j, {
+                                color: e.target.value.toUpperCase(),
+                              })
+                            }
+                            className="absolute inset-0 opacity-0"
+                            aria-label="Color of this caption"
+                          />
+                        </label>
+                        {c.color && (
+                          <button
+                            onClick={() => editCue(current, j, { color: null })}
+                            className="shrink-0 rounded p-1 text-muted hover:text-white"
+                            title="Use the video's caption color"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        )}
                         <input
                           type="number"
                           step={0.1}

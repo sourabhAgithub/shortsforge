@@ -17,6 +17,12 @@ from app.tools.aivideo.script import caption_chunks, parse_table, resolve_timing
 SAMPLE = (Path(__file__).parent / "sample_script.md").read_text()
 
 
+@pytest.fixture(autouse=True)
+def no_sound_library(monkeypatch):
+    """Suggestions look sounds up online; tests stay offline."""
+    monkeypatch.setattr("app.tools.aivideo.suggest.find_options", lambda name: [])
+
+
 def test_parse_sample_script():
     scenes = parse_table(SAMPLE)
     assert len(scenes) == 7
@@ -227,7 +233,7 @@ def test_manual_captions_are_used_and_clipped():
     from app.tools.aivideo.render import scene_cues
     s = Scene(voiceover="one two three four five six",
               captions=[Cue(text="early", start=1.0, end=2.5), Cue(text="late", start=4.5, end=9.0)])
-    assert scene_cues(s, 2.0, 6.0) == [("early", 2.0, 2.5), ("late", 4.5, 6.0)]
+    assert scene_cues(s, 2.0, 6.0) == [("early", 2.0, 2.5, None), ("late", 4.5, 6.0, None)]
     s.captions = None
     assert [c[0] for c in scene_cues(s, 0, 4)] == ["one two three", "four five six"]
 
@@ -465,3 +471,393 @@ def test_clean_image_removes_a_corner_watermark():
         ft.clean_image(p.id, "../../secret.jpg", (0, 0, 0.5, 0.5))
     with pytest.raises(UserError):
         ft.clean_image(p.id, up.file, (0.5, 0.5, 0.001, 0.001))
+
+
+def _tone_file(path: Path, seconds: float, hz: int = 880) -> Path:
+    run_ffmpeg(["-f", "lavfi", "-i", f"sine=frequency={hz}:duration={seconds}", str(path)])
+    return path
+
+
+def _rms(path: Path, start: float, seconds: float) -> float:
+    pcm = subprocess.run([ffmpeg_exe(), "-v", "error", "-ss", str(start), "-t", str(seconds), "-i", str(path),
+                          "-ac", "1", "-f", "s16le", "-"], capture_output=True, check=True).stdout
+    samples = [int.from_bytes(pcm[i:i + 2], "little", signed=True) for i in range(0, len(pcm), 2)]
+    return (sum(v * v for v in samples) / max(len(samples), 1)) ** 0.5
+
+
+def _sound_project(pid: str, *clips) -> AiProject:
+    from app.tools.aivideo.models import Footage
+    folder = ft.project_dir(pid)
+    run_ffmpeg(["-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "6", str(folder / "voice.wav")])
+    return AiProject(id=pid, title="Sound test", voiceover=MediaFile(file="voice.wav", duration=6),
+                     settings={"whoosh": False, "captions": False, "ranking": False, "labels": False},
+                     scenes=[Scene(voiceover="one", footage=Footage(kind="gradient", source="gradient"))],
+                     sounds=list(clips))
+
+
+def _render_audio(p: AiProject) -> Path:
+    from app import videos
+    return videos.paths(render(p)["id"])[0]
+
+
+def test_sound_clip_plays_only_where_it_sits_on_the_timeline():
+    from app.tools.aivideo.models import SoundClip
+    folder = ft.project_dir("sfxspot")
+    _tone_file(folder / "knock.wav", 1.0)
+    mp4 = _render_audio(_sound_project("sfxspot", SoundClip(file="knock.wav", duration=1.0, start=3.0, length=1.0)))
+    assert _rms(mp4, 0.5, 2) < 50
+    assert _rms(mp4, 3.1, 0.7) > 1000
+    assert _rms(mp4, 4.5, 1) < 50
+
+
+def test_sound_clip_loops_when_longer_than_its_file():
+    from app.tools.aivideo.models import SoundClip
+    folder = ft.project_dir("sfxloop")
+    _tone_file(folder / "rain.wav", 0.8)
+    mp4 = _render_audio(_sound_project("sfxloop", SoundClip(file="rain.wav", duration=0.8, start=1.0, length=3.0)))
+    assert _rms(mp4, 0, 0.8) < 50
+    assert _rms(mp4, 2.0, 1.0) > 1000  # well past the end of the 0.8 s file
+    assert _rms(mp4, 4.5, 1) < 50
+
+
+def test_sound_clips_can_overlap_at_their_own_volumes():
+    from app.tools.aivideo.models import SoundClip
+    folder = ft.project_dir("sfxmix")
+    _tone_file(folder / "a.wav", 2.0)
+    _tone_file(folder / "b.wav", 2.0, 330)
+    loud = _render_audio(_sound_project("sfxmix", SoundClip(file="a.wav", duration=2, start=1, length=2, volume=1)))
+    quiet = _render_audio(_sound_project("sfxmix", SoundClip(file="a.wav", duration=2, start=1, length=2, volume=.25),
+                                         SoundClip(file="b.wav", duration=2, start=1.5, length=2, volume=.25)))
+    assert _rms(quiet, 1.1, .3) < _rms(loud, 1.1, .3) * .4
+    assert _rms(quiet, 2.0, .5) > _rms(quiet, 1.1, .3) * 1.2  # both playing together
+
+
+def test_missing_sound_file_does_not_stop_the_render():
+    from app.tools.aivideo.models import SoundClip
+    assert _render_audio(_sound_project("sfxgone", SoundClip(file="gone.wav", duration=1, start=1))).exists()
+
+
+def test_caption_colours_word_beats_caption_beats_video():
+    from app.tools.aivideo.overlay import caption_image
+
+    def has(img: Image.Image, rgb) -> bool:
+        return any(px[:3] == rgb and px[3] == 255 for px in img.getdata())
+
+    red, green, blue = (255, 0, 0), (0, 255, 0), (0, 0, 255)
+    assert has(caption_image("hello there", "#FF0000"), red)
+    both = caption_image("hello there", "#FF0000", {"there": "#00FF00"})
+    assert has(both, red) and has(both, green)
+    assert has(caption_image("HELLO!", "#0000FF", {"hello": "#00FF00"}), green)
+    assert not has(caption_image("hello", "#0000FF", {"hello": "#00FF00"}), blue)
+
+
+def test_caption_keeps_its_own_colour():
+    from app.tools.aivideo.models import Cue
+    from app.tools.aivideo.render import scene_cues
+    s = Scene(captions=[Cue(text="red one", start=0, end=1, color="#FF0000")])
+    assert scene_cues(s, 0, 2) == [("red one", 0, 1, "#FF0000")]
+    with pytest.raises(ValueError):
+        Cue(text="x", start=0, end=1, color="red")
+
+
+def _story() -> AiProject:
+    from app.tools.aivideo.models import Cue, SoundClip
+    return AiProject(voiceover=MediaFile(file="v.wav", duration=20), scenes=[
+        Scene(start=0, end=10, captions=[Cue(text="It was raining hard", start=0, end=4),
+                                         Cue(text="then I heard a knock", start=5, end=9)]),
+        Scene(start=10, end=20, prompt="Dark hallway", show_captions=False,
+              captions=[Cue(text="nobody was there", start=11, end=14)]),
+    ], sounds=[SoundClip(file="door-knock_1.mp3", name="door-knock.mp3", duration=1.2, start=18),
+               SoundClip(file="door-knock_1.mp3", name="door-knock.mp3", duration=1.2, start=9.5),
+               SoundClip(file="rain.mp3", name="rain.mp3", duration=30, start=15)])
+
+
+def test_suggestions_use_real_lines_and_drop_what_the_ai_invents(monkeypatch):
+    from app.tools.aivideo import suggest as sg
+    seen = {}
+
+    def reply(system, prompt):
+        seen["prompt"] = prompt
+        return """Sure!
+        ```json
+        {"suggestions": [
+          {"sound": "S1", "from": 2, "to": 2, "reason": "The knock"},
+          {"sound": "s2", "from": 1, "to": 2, "reason": "Rain outside"},
+          {"sound": "Creepy hum", "from": 3, "to": 3, "reason": "Empty hall"},
+          {"sound": "S1", "from": 99, "to": 99, "reason": "Not a real line"},
+          {"sound": "S1", "from": "soon", "reason": "Not a number"}
+        ]}
+        ```"""
+
+    monkeypatch.setattr(sg, "_ask", reply)
+    out = sg.suggest(_story(), 20.0)
+    assert out["source"] == "ai"
+    assert "3. [11.0s] nobody was there (on screen: Dark hallway)" in seen["prompt"]  # hidden captions count
+    assert "S1: door knock (1.2s long)" in seen["prompt"] and "S3:" not in seen["prompt"]
+    knock, rain, hum = out["suggestions"]
+    assert (knock["file"], knock["start"], knock["length"], knock["ambient"]) == ("door-knock_1.mp3", 5.0, 1.2, False)
+    assert (rain["file"], rain["start"], rain["length"], rain["ambient"]) == ("rain.mp3", 0.0, 9.0, True)
+    assert (hum["file"], hum["sound"], hum["start"]) == (None, "Creepy hum", 11.0)
+
+
+def test_suggestions_skip_a_sound_already_at_that_spot(monkeypatch):
+    from app.tools.aivideo import suggest as sg
+    monkeypatch.setattr(sg, "_ask", lambda *_: '{"suggestions": [{"sound": "S1", "from": 2, "to": 2}]}')
+    p = _story()
+    p.sounds[1].start = 5.4
+    assert sg.suggest(p, 20.0)["suggestions"] == []
+
+
+def test_short_sound_never_loops_across_a_long_moment(monkeypatch):
+    from app.tools.aivideo import suggest as sg
+    monkeypatch.setattr(sg, "_ask", lambda *_: '{"suggestions": [{"sound": "S1", "from": 1, "to": 3}]}')
+    idea = sg.suggest(_story(), 20.0)["suggestions"][0]
+    assert (idea["length"], idea["ambient"]) == (1.2, False)
+
+
+@pytest.mark.parametrize("failure", [OSError("no internet"), ValueError("bad json")])
+def test_suggestions_fall_back_to_the_scripts_words(monkeypatch, failure):
+    from app.tools.aivideo import suggest as sg
+
+    def down(*_):
+        raise failure
+
+    monkeypatch.setattr(sg, "_ask", down)
+    out = sg.suggest(_story(), 20.0)
+    assert out["source"] == "keywords"
+    picks = {(i["sound"], i["start"], i["length"]) for i in out["suggestions"]}
+    assert ("door knock", 5.0, 1.2) in picks
+    assert ("rain", 0.0, 9.0) in picks  # ambience runs on to the end of the scene
+
+
+def test_upload_accepts_a_very_short_sound():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    pid = AiProject().id
+    path = _tone_file(ft.project_dir(pid) / "src.wav", 0.2)
+    with TestClient(app) as c, open(path, "rb") as f:
+        r = c.post(f"/api/aivideo/projects/{pid}/sounds", files={"file": ("knock.wav", f)})
+    assert r.status_code == 200 and r.json()["name"] == "knock.wav" and r.json()["url"]
+
+
+RIYA = ("Image\tTime\tVoice line\n"
+        "1: Building exterior\t0:00–0:07\tSomething has been whispering my name for twenty years.\n"
+        "2: Bedroom, parents asleep\t0:07–0:12\tMy parents slept like the dead.\n"
+        "3: Riya’s eyes snap open\t0:12–0:17\tOne night, a whisper woke me. [whispers] “Riya… Riya…”\n")
+
+
+def test_parse_finds_columns_with_unfamiliar_headers():
+    scenes = parse_table(RIYA)
+    assert scenes[1].voiceover == "My parents slept like the dead."
+    assert scenes[0].prompt == "Building exterior" and scenes[2].prompt == "Riya’s eyes snap open"
+    assert (scenes[2].start, scenes[2].end) == (12, 17)
+    # Any order, with headers the parser has never seen.
+    odd = parse_table("| Clip | When | Words |\n|---|---|---|\n| Castle | 0-3s | Once upon a time there was a king |\n")
+    assert odd[0].voiceover == "Once upon a time there was a king" and odd[0].prompt == "Castle"
+    # No header at all, times in the middle.
+    bare = parse_table("Castle\t0-3s\tOnce upon a time there was a king\n")
+    assert bare[0].voiceover.startswith("Once") and bare[0].start == 0
+
+
+def test_delivery_tags_are_never_spoken_or_captioned():
+    assert caption_chunks("[pause] On the steps [whispers] “Riya…”") == ["On the steps “Riya…”"]
+    from app.tools.aivideo.sync import sync_scenes
+    out, unmatched = sync_scenes([Scene(voiceover="[whispers] one two three [long pause] four five six")],
+                                 _words("one two three four five six", 0.0), 3.0)
+    assert not unmatched
+    assert "[" not in " ".join(c.text for c in out[0].captions)
+
+
+def test_saved_scenes_with_times_as_voiceover_are_repaired():
+    from app.tools.aivideo.models import Cue
+    from app.tools.aivideo.script import repair_scenes
+    bad = [Scene(voiceover=s.start and "0:07–0:12" or "0:00–0:07", prompt=s.voiceover,
+                 footage=None, captions=[Cue(text="misheard", start=0, end=1)]) for s in parse_table(RIYA)]
+    p = AiProject(script_text=RIYA, scenes=bad)
+    keep = [s.id for s in p.scenes]
+    assert repair_scenes(p)
+    assert p.scenes[1].voiceover == "My parents slept like the dead." and p.scenes[1].prompt == "Bedroom, parents asleep"
+    assert [s.id for s in p.scenes] == keep and all(s.captions is None for s in p.scenes)
+    assert not repair_scenes(p)  # a healthy project is left alone
+
+
+def test_scene_words_that_are_not_times_are_left_alone():
+    from app.tools.aivideo.script import repair_scenes
+    p = AiProject(script_text=RIYA, scenes=[Scene(voiceover="My own edited line", prompt="Keep me")])
+    assert not repair_scenes(p) and p.scenes[0].voiceover == "My own edited line"
+
+
+def test_sync_rejoins_a_word_heard_as_two():
+    from app.tools.aivideo.sync import sync_scenes
+    # "padlocked" heard as "bad locked", right next to script words that were never spoken.
+    script = "it was always padlocked. Papa said ghosts are not real. Then one evening I was drawing"
+    heard = _words("it was always bad locked. One evening I was drawing", 0.0)
+    out, _ = sync_scenes([Scene(voiceover=script)], heard, 6.0)
+    text = " ".join(c.text for c in out[0].captions)
+    assert "padlocked." in text and "bad" not in text and "Papa" not in text
+
+
+def test_sync_keeps_separate_words_that_are_both_in_the_script():
+    from app.tools.aivideo.sync import join_split_words
+    heard = _words("the door was open", 0.0)
+    assert join_split_words("the door was open".split(), heard) == heard
+
+
+def test_opening_a_project_repairs_its_scenes():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.tools.aivideo import api
+    p = api.save(AiProject(script_text=RIYA, scenes=[Scene(voiceover="0:00–0:07"), Scene(voiceover="0:07–0:12"),
+                                                     Scene(voiceover="0:12–0:17")]))
+    with TestClient(app) as c:
+        got = c.get(f"/api/aivideo/projects/{p.id}").json()
+    assert got["scenes"][1]["voiceover"] == "My parents slept like the dead."
+    assert api.load(p.id).scenes[1].voiceover == "My parents slept like the dead."  # saved too
+
+
+def _gap_tone(path: Path) -> Path:
+    """Silent for 1 s, a tone for 1 s, silent for 1 s."""
+    run_ffmpeg(["-f", "lavfi", "-i", "sine=frequency=880:duration=1", "-af", "adelay=1000:all=1,apad=whole_dur=3",
+                str(path)])
+    return path
+
+
+def test_trim_plays_only_the_part_kept():
+    from app.tools.aivideo.models import SoundClip
+    _gap_tone(ft.project_dir("sfxtrim") / "gap.wav")
+    clip = SoundClip(file="gap.wav", duration=3, start=2, length=1, trim_start=1, trim_end=1)
+    mp4 = _render_audio(_sound_project("sfxtrim", clip))
+    assert _rms(mp4, 2.1, 0.7) > 1000  # the tone, moved to where the clip sits
+    assert _rms(mp4, 0, 1.8) < 50
+    assert _rms(mp4, 3.3, 2) < 50
+
+
+def test_a_trimmed_sound_loops_only_the_part_kept():
+    from app.tools.aivideo.models import SoundClip
+    _gap_tone(ft.project_dir("sfxtrimloop") / "gap.wav")
+    clip = SoundClip(file="gap.wav", duration=3, start=1, length=4, trim_start=1, trim_end=1)
+    assert clip.part == 1
+    mp4 = _render_audio(_sound_project("sfxtrimloop", clip))
+    # Without the trim, the silent parts of the file would come round in this stretch.
+    assert all(_rms(mp4, t, 0.3) > 1000 for t in (1.6, 2.3, 3.0, 3.6))
+
+
+def test_speed_plays_the_sound_faster_at_the_same_pitch():
+    from app.tools.aivideo.models import SoundClip
+    _gap_tone(ft.project_dir("sfxfast") / "gap.wav")
+    clip = SoundClip(file="gap.wav", duration=3, start=1, length=1.5, speed=2)
+    assert clip.played == 1.5
+    mp4 = _render_audio(_sound_project("sfxfast", clip))
+    assert _rms(mp4, 1.6, 0.3) > 1000  # the tone, 1–2 s into the file, now 0.5–1 s into the clip
+    assert _rms(mp4, 1, 0.4) < 50 and _rms(mp4, 2.2, 0.2) < 50
+    pcm = subprocess.run([ffmpeg_exe(), "-v", "error", "-ss", "1.6", "-t", "0.3", "-i", str(mp4), "-ac", "1",
+                          "-ar", "48000", "-f", "s16le", "-"], capture_output=True, check=True).stdout
+    samples = [int.from_bytes(pcm[i:i + 2], "little", signed=True) for i in range(0, len(pcm), 2)]
+    rises = sum(a < 0 <= b for a, b in zip(samples, samples[1:]))
+    assert abs(rises / (len(samples) / 48000) - 880) < 30  # still 880 Hz, not 1760
+
+
+def test_a_sped_up_sound_loops_at_its_shorter_length():
+    from app.tools.aivideo.models import SoundClip
+    _gap_tone(ft.project_dir("sfxfastloop") / "gap.wav")
+    clip = SoundClip(file="gap.wav", duration=3, start=1, length=4, trim_start=1, trim_end=1, speed=2)
+    mp4 = _render_audio(_sound_project("sfxfastloop", clip))
+    assert all(_rms(mp4, t, 0.3) > 1000 for t in (1.6, 2.6, 3.6))
+
+
+def _page(title, seconds=3.0, licence="CC0", mime="audio/wav", size=1000, url="https://upload.wikimedia.org/a.wav"):
+    return {"title": f"File:{title}", "imageinfo": [{
+        "duration": seconds, "mime": mime, "size": size, "url": url + title, "descriptionurl": "https://c/x",
+        "extmetadata": {"LicenseShortName": {"value": licence}, "Artist": {"value": "<a href='x'>Sam &amp; Co</a>"}}}]}
+
+
+def test_library_keeps_real_sounds_and_ranks_the_safest_first(monkeypatch):
+    from app.tools.aivideo import sfx
+    monkeypatch.setattr(sfx, "PAUSE", 0)
+    pages = [_page("Door knock sa.ogg", licence="CC BY-SA 4.0"), _page("Door knock by.ogg", licence="CC BY 4.0"),
+             _page("Door knock free.ogg"), _page("En-us-door knock.ogg"), _page("LL-Q1860 door knock.wav"),
+             _page("Door knock speech.ogg", 2000), _page("Door knock tiny.ogg", 0.05),
+             _page("Door knock nc.ogg", licence="CC BY-NC 4.0"), _page("Door knock score.mid", mime="audio/midi"),
+             _page("Door knock (1911).ogg"), _page("Door knock big.wav", size=10**9),
+             _page("Cold nights and a door knock can damage the equipment.ogg")]
+    monkeypatch.setattr(sfx, "_search", lambda q: pages)
+    got = sfx.find_options("Door knock")
+    assert [o["title"] for o in got] == ["Door knock free", "Door knock by", "Door knock sa"]
+    assert got[0]["artist"] == "Sam & Co" and got[0]["licence"] == "CC0"
+
+
+def test_library_falls_back_to_the_sound_itself(monkeypatch):
+    from app.tools.aivideo import sfx
+    monkeypatch.setattr(sfx, "PAUSE", 0)
+    asked = []
+
+    def search(query):
+        asked.append(query)
+        return [_page("Lock clicking.wav")] if query.startswith("click") else []
+
+    monkeypatch.setattr(sfx, "_search", search)
+    assert [o["title"] for o in sfx.find_options("Eerie lock click")] == ["Lock clicking"]
+    assert asked[0].startswith("eerie lock click")
+
+
+def test_library_skips_mood_words_alone_and_explains_the_sound():
+    from app.tools.aivideo import sfx
+    assert sfx._queries("soft whisper") == ["soft whisper", "whisper"]
+    assert sfx._queries("wind rush") == ["wind rush", "rush", "wind"]
+    assert sfx._about("<p>A hard knock on an <b>oak</b> door</p>", "Knock") == "A hard knock on an oak door"
+    assert sfx._about("Knock on door", "Knock on door") == ""
+    assert sfx._about("Title Rain Artist x", "Rain") == ""
+
+
+def test_new_builds_show_without_a_hard_refresh(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main
+    (tmp_path / "index.html").write_text("<html></html>")
+    monkeypatch.setattr(main, "FRONTEND_DIST", tmp_path)
+    with TestClient(main.app) as c:
+        assert c.get("/").headers["cache-control"] == "no-cache"
+
+
+def test_library_being_unreachable_gives_no_options(monkeypatch):
+    from app.tools.aivideo import sfx
+
+    def down(query):
+        raise OSError("no internet")
+
+    monkeypatch.setattr(sfx, "PAUSE", 0)
+    monkeypatch.setattr(sfx, "_search", down)
+    assert sfx.find_options("Rain") == []
+
+
+def test_only_library_files_can_be_downloaded():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    with TestClient(app) as c:
+        r = c.post("/api/aivideo/projects/sfxfetch/fetch-sound", json={"url": "http://169.254.169.254/x", "title": "x"})
+    assert r.status_code == 400
+
+
+def test_download_becomes_a_playable_mp3_and_is_kept_once(monkeypatch, tmp_path):
+    from app.tools.aivideo import sfx
+    source = _tone_file(tmp_path / "s.ogg", 1.0)
+    calls = []
+
+    def get(url, timeout=20):
+        calls.append(url)
+        return source.open("rb")
+
+    monkeypatch.setattr(sfx, "_get", get)
+    url = sfx.FILES_URL + "a/b/Knock.ogg"
+    media = sfx.fetch("sfxdown", url, "Knock on door")
+    assert media.file.endswith(".mp3") and media.name == "Knock on door" and abs(media.duration - 1) < .1
+    assert sfx.fetch("sfxdown", url, "Knock on door").file == media.file
+    assert len(calls) == 1
+
+
+def test_suggested_new_sounds_carry_free_options(monkeypatch):
+    from app.tools.aivideo import suggest as sg
+    option = {"title": "Rain", "url": "u", "duration": 9, "licence": "CC0", "artist": "", "page": ""}
+    monkeypatch.setattr(sg, "find_options", lambda name: [option])
+    ideas = [{"file": None, "sound": "Rain"}, {"file": "have.mp3", "sound": "Knock"}]
+    sg.add_options(ideas)
+    assert ideas[0]["options"] == [option] and "options" not in ideas[1]

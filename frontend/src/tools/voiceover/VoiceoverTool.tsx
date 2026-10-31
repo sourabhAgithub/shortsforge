@@ -5,10 +5,15 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Scissors,
   Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, formatDate, formatSeconds } from "../../api";
+import ItemName from "./ItemName";
+import type { Item } from "./types";
+import VoiceEditor from "./VoiceEditor";
+import VoiceRecorder from "./VoiceRecorder";
 
 type Voice = {
   id: string;
@@ -18,18 +23,6 @@ type Voice = {
   language: string;
   styles: string[];
   sample?: string | null; // ready-made sample (ElevenLabs), played without using credits
-};
-
-type Item = {
-  id: string;
-  text: string;
-  voice: string;
-  rate: number;
-  pitch: number;
-  duration: number;
-  created_at: number;
-  url: string;
-  download: string;
 };
 
 const MAX_CHARS = 20000;
@@ -128,6 +121,7 @@ export default function VoiceoverTool() {
   const [latest, setLatest] = useState<Item | null>(null);
   const [error, setError] = useState("");
   const [eleven, setEleven] = useState(true); // ElevenLabs key set (hides the "add a key" tip)
+  const [editing, setEditing] = useState<Item | null>(null);
   const player = useRef<HTMLAudioElement>(null);
   const script = useRef<HTMLTextAreaElement>(null);
 
@@ -165,7 +159,10 @@ export default function VoiceoverTool() {
   const shown = inLanguage.filter((v) => !gender || v.gender === gender);
   const expressive = locale === ELEVEN;
   const voiceName = (id: string) =>
-    voices?.find((v) => v.id === id)?.name ?? id.split("-").slice(2).join("-");
+    id === "recording"
+      ? "Your voice"
+      : (voices?.find((v) => v.id === id)?.name ??
+        id.split("-").slice(2).join("-"));
 
   function chooseLanguage(l: string) {
     setLocale(l);
@@ -250,6 +247,37 @@ export default function VoiceoverTool() {
     }
   }
 
+  function open(item: Item) {
+    player.current?.pause();
+    setPlaying("");
+    setError("");
+    setEditing(item);
+  }
+
+  function recorded(item: Item) {
+    setItems((list) => [item, ...list]);
+    open(item);
+  }
+
+  function saved(item: Item) {
+    setItems((list) => [item, ...list]);
+    setLatest(item);
+    setEditing(null);
+  }
+
+  async function rename(item: Item, name: string) {
+    try {
+      const saved = await api<Item>(`/api/voiceover/items/${item.id}`, {
+        method: "PATCH",
+        json: { name },
+      });
+      setItems((list) => list.map((x) => (x.id === item.id ? saved : x)));
+      setLatest((x) => (x?.id === item.id ? saved : x));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   async function remove(item: Item) {
     if (!confirm("Delete this voiceover?")) return;
     try {
@@ -261,6 +289,16 @@ export default function VoiceoverTool() {
       setError((e as Error).message);
     }
   }
+
+  if (editing)
+    return (
+      <VoiceEditor
+        key={editing.id}
+        item={editing}
+        onClose={() => setEditing(null)}
+        onSaved={saved}
+      />
+    );
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-10">
@@ -277,7 +315,8 @@ export default function VoiceoverTool() {
             </h1>
             <p className="mt-1 max-w-lg text-muted">
               Type a script, pick a language and voice, and download it as an
-              MP3. Hundreds of natural voices in over 70 languages.
+              MP3, or record your own voice. Hundreds of natural voices in over
+              70 languages.
             </p>
           </div>
         </div>
@@ -288,6 +327,8 @@ export default function VoiceoverTool() {
           {error}
         </p>
       )}
+
+      <VoiceRecorder onRecorded={recorded} onError={setError} />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
         <section className="card flex flex-col p-4 sm:p-6">
@@ -332,19 +373,27 @@ export default function VoiceoverTool() {
                 Your MP3 is ready · {voiceName(latest.voice)} ·{" "}
                 {formatSeconds(latest.duration)}
               </p>
+              <div className="mt-1">
+                <ItemName item={latest} onRename={(n) => rename(latest, n)} />
+              </div>
               <audio
                 key={latest.id}
                 src={latest.url}
                 controls
                 className="mt-3 w-full"
               />
-              <a
-                href={latest.download}
-                download
-                className="btn-primary mt-3 w-full"
-              >
-                <Download className="size-4" /> Download MP3
-              </a>
+              <div className="mt-3 flex gap-2">
+                <button onClick={() => open(latest)} className="btn-ghost">
+                  <Scissors className="size-4" /> Edit
+                </button>
+                <a
+                  href={latest.download}
+                  download
+                  className="btn-primary flex-1"
+                >
+                  <Download className="size-4" /> Download MP3
+                </a>
+              </div>
             </div>
           )}
         </section>
@@ -478,7 +527,7 @@ export default function VoiceoverTool() {
       </h2>
       {!items.length && (
         <p className="text-sm text-muted">
-          Nothing yet. Generate your first voiceover above.
+          Nothing yet. Generate or record your first voiceover above.
         </p>
       )}
       <div className="flex flex-col gap-3">
@@ -499,12 +548,19 @@ export default function VoiceoverTool() {
               )}
             </button>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">{item.text}</p>
+              <ItemName item={item} onRename={(n) => rename(item, n)} />
               <p className="mt-0.5 truncate text-xs text-muted">
                 {voiceName(item.voice)} · {formatSeconds(item.duration)} ·{" "}
                 {formatDate(item.created_at)}
               </p>
             </div>
+            <button
+              onClick={() => open(item)}
+              className="rounded-lg p-2 text-muted hover:bg-white/5 hover:text-white"
+              title="Edit: trim and speed"
+            >
+              <Scissors className="size-4" />
+            </button>
             <a
               href={item.download}
               download

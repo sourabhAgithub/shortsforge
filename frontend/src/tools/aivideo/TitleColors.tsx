@@ -44,6 +44,7 @@ function Swatches({
 
 type Props = {
   title: string;
+  what?: string; // "Title", or "Caption" when colouring captions
   color: string;
   highlights: Record<string, string>;
   onColor: (c: string) => void;
@@ -58,6 +59,7 @@ const contrastWith = (color: string) =>
 /** Title colour plus optional per-word highlight colours (click a word to paint it). */
 export default function TitleColors({
   title,
+  what = "Title",
   color,
   highlights,
   onColor,
@@ -82,7 +84,7 @@ export default function TitleColors({
   return (
     <div className="mt-5 grid gap-5 sm:grid-cols-2">
       <div>
-        <span className="label">Title color</span>
+        <span className="label">{what} color</span>
         <Swatches value={color} onPick={pickTitleColor} />
       </div>
       <div>
@@ -102,8 +104,8 @@ export default function TitleColors({
       <div className="sm:col-span-2">
         {same ? (
           <p className="mb-2 text-xs text-amber">
-            The highlight color is the same as the title color, so painted words
-            won't stand out. Pick a different highlight color.
+            The highlight color is the same as the {what.toLowerCase()} color,
+            so painted words won't stand out. Pick a different highlight color.
           </p>
         ) : (
           <p className="mb-2 text-xs text-muted">
@@ -111,10 +113,10 @@ export default function TitleColors({
             painted word again to remove it.
           </p>
         )}
-        <div className="flex flex-wrap gap-1.5 rounded-xl border border-line bg-ink p-3">
+        <div className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto rounded-xl border border-line bg-ink p-3">
           {words.length === 0 && (
             <p className="text-sm text-muted">
-              Type a title above, then click its words here.
+              Type a {what.toLowerCase()} above, then click its words here.
             </p>
           )}
           {words.map((w, j) => {

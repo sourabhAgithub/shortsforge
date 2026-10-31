@@ -11,8 +11,9 @@ Five tools work today:
   a ranking list.
 - **Video Generator:** edit one video into a Short. Trim it, keep or mute its sound, add your own audio,
   make captions automatically from the speech, and put text anywhere on screen.
-- **Voice Generator:** type a script, pick a language and voice, and download it as an MP3. It has hundreds of
-  natural voices in over 70 languages, including Hindi, Tamil, Malayalam and Telugu.
+- **Voice Generator:** type a script, pick a language and voice, and download it as an MP3, or record your own
+  voice. It has hundreds of natural voices in over 70 languages, including Hindi, Tamil, Malayalam and Telugu. Trim
+  any voiceover, change its speed, or let Auto fit it to the length you need.
 - **Story Puppets:** pick a ready-made character or draw your own, give it actions like walk, wave or fall, and
   get a story video.
 
@@ -142,6 +143,25 @@ videos usually do best under 60 seconds, so the app warns you when you go over.
      scene's label box (or in the "Show from … to … s" fields in the Scene editor), or click
      **Show for whole scene** to go back.
    - **Captions track:** drag a caption to move it, or drag its edges to change when it appears and disappears.
+   - **Sound effects track:** for knocks, rain, thunder and anything else on top of the music. Click **Add sound**
+     to drop a file at the playhead, drag it to where it belongs, and drag its right edge to change how long it
+     plays (longer than the file and it loops, so a short rain clip can run through a whole scene). Sounds that
+     overlap stack on separate rows. Each one has its own volume, and **Use again** puts another copy at the playhead.
+   - **Suggest places:** reads your script and says where your sounds fit, and which new sounds might help, with a
+     reason for each. Click **Add** to put one on the track. Run **Auto-sync** first so they land on the spoken
+     words. Your script text goes to pollinations.ai's free text AI (no key needed); if it can't be reached, the
+     app matches words in your script instead, and tells you so.
+     For a sound you don't have yet, it finds free downloads on Wikimedia Commons (no key needed): pick one from
+     the list, press play to hear it, then **Download** saves it to your computer and **Add to timeline** puts it on
+     the track. Results depend on what Commons holds, so **Upload**
+     your own if nothing fits. Sounds marked CC BY must be credited: **Copy credits** gives you the text for your
+     video description.
+   - **Trim:** click a sound on the track, or **Trim** in the list, to open it in a pop-up. Drag the ends of its
+     waveform or type exact From and To seconds to keep only the part you want. The preview and the final video
+     both use that part, and a loop repeats only that part. The pop-up also sets where it starts, how long it
+     plays and its volume, and its **Speed** from 0.5x to 3x: footsteps get quicker without sounding squeaky.
+   - **Caption colors:** one color for all captions, and click words to paint them in a highlight color (that word
+     stays painted everywhere it appears). The color dot beside a caption in the list colors just that caption.
    - **Show label / Show ranking list:** switch these off to hide the text on top of the image (the label box
      and the #1–#5 list) for that scene. The same switches are on each scene in the Scene editor.
    - **Show captions in this scene:** switch it off to have no captions while that scene is on screen (for
@@ -203,7 +223,24 @@ Without any keys, everything still works: free AI images (slow), with gradients 
    - **ElevenLabs voices** act the tags out (real whispers, a nervous voice, sighs, laughs). See the key below.
 5. **Speed** and **Pitch:** optional, free voices only. Speed +10% to +20% suits Shorts.
 6. **Generate MP3**, then play it or click **Download MP3**. The file is named after the script's first words.
-7. **Your voiceovers** keeps your 50 newest MP3s to play, download again or delete.
+7. **Your voiceovers** keeps your 50 newest MP3s to play, edit, download again or delete.
+
+**Record your own voice:** click **Record**, allow the microphone the first time, then **Stop**. The recording opens
+in the editor. It needs `localhost` or an `https://` address: browsers block the microphone on plain `http://` links.
+
+**Edit a voiceover:** the editor opens after recording, or click the scissors on anything in **Your voiceovers**.
+
+- **Timeline:** click the waveform to move the playhead. Drag the two handles to trim, or use **Start here** and
+  **End here** at the playhead. Only the bright part is kept.
+- **Speed:** 0.5× to 3×. The pitch stays the same, and ▶ plays it at the speed you set.
+- **Auto:** type the length you need, or click 15s, 30s or 60s, and **Auto set speed** picks the speed that fits.
+- **Clean up audio:** reduces steady background noise (fans, hiss, hum) and evens out the volume. Switch either one
+  off, then compare **Original** and **Changed** by ear. The one you pick is what gets saved. It can't remove other
+  voices or sudden noises.
+- **Voice style and Pitch:** pick a style (Deep, Warm, Bright, Child, Chipmunk, Monster, Radio, Phone call, Robot, Echo,
+  Big hall, Horror) or move the pitch up to 12 semitones either way. It plays straight away, and the length stays the
+  same. Small changes sound most natural; big ones sound like a cartoon.
+- **Save as new MP3:** the original stays in your list.
 
 The free voices come from Microsoft's online text-to-speech service (the same one as Edge's "Read aloud"), so
 this tool needs an internet connection. No account or API key is needed. For Indian names and words in an

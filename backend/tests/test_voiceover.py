@@ -1,5 +1,9 @@
 """Voice Generator tests: voice list, MP3 generation + download, history, errors, delivery tags
 and the ElevenLabs route (the online voice services are stubbed so the tests run offline)."""
+import array
+import json
+import math
+
 import edge_tts
 import pytest
 from fastapi.testclient import TestClient
@@ -160,3 +164,156 @@ def test_elevenlabs_voices_get_the_script_with_its_tags(client, monkeypatch):
     r = client.post("/api/voiceover/speak", json={"text": text, "voice": "eleven:abc"}).json()
     assert sent == [(text, "eleven:abc")] and not calls
     assert abs(probe(vo.VOICEOVER_DIR / f"{r['id']}.mp3").duration - 2) < 0.15
+
+
+def _recording(seconds: float) -> bytes:
+    """What a browser sends: WebM with Opus-style audio, not an MP3."""
+    ensure_dirs()
+    out = WORK_DIR / f"rec_{seconds}.webm"
+    if not out.exists():
+        run_ffmpeg(["-f", "lavfi", "-i", f"sine=frequency=300:duration={seconds}", "-c:a", "libopus", str(out)])
+    return out.read_bytes()
+
+
+def test_recording_is_kept_as_an_mp3_in_the_history(client):
+    r = client.post("/api/voiceover/record", files={"file": ("voice.webm", _recording(2), "audio/webm")})
+    assert r.status_code == 200, r.text
+    item = r.json()
+    assert item["voice"] == "recording" and item["text"].startswith("Recording")
+    assert item["duration"] == pytest.approx(2, abs=.15)
+    assert client.get(item["url"]).content[:3] in (b"ID3", b"\xff\xfb")
+    assert item["id"] in [x["id"] for x in client.get("/api/voiceover/items").json()]
+    assert client.post("/api/voiceover/record", files={"file": ("x", b"not audio", "audio/webm")}).status_code == 400
+    assert client.post("/api/voiceover/record",
+                       files={"file": ("x", _recording(.1), "audio/webm")}).status_code == 400
+
+
+def test_edit_trims_and_changes_speed_and_keeps_the_original(client):
+    item = client.post("/api/voiceover/record", files={"file": ("v.webm", _recording(4), "audio/webm")}).json()
+    url = f"/api/voiceover/items/{item['id']}/edit"
+    edited = client.post(url, json={"start": 1, "end": 3, "speed": 2}).json()
+    assert edited["duration"] == pytest.approx(1, abs=.15)
+    assert edited["id"] != item["id"] and edited["text"] == item["text"] + " (edited)"
+    assert client.get(item["url"]).status_code == 200
+    # Slower makes it longer, and the end is capped at the real length.
+    slower = client.post(url, json={"start": 3, "end": 99, "speed": .5}).json()
+    assert slower["duration"] == pytest.approx(2, abs=.2)
+    again = client.post(f"/api/voiceover/items/{edited['id']}/edit", json={"start": 0, "end": .9}).json()
+    assert again["text"] == edited["text"] and again["duration"] == pytest.approx(.9, abs=.15)
+    assert client.post(url, json={"start": 2, "end": 2.1}).status_code == 400
+    assert client.post(url, json={"start": 3, "end": 2}).status_code == 400
+    assert client.post(url, json={"start": 0, "end": 2, "speed": 9}).status_code == 422
+    assert client.post("/api/voiceover/items/abc/edit", json={"start": 0, "end": 2}).status_code == 404
+
+
+def test_rename_shows_in_the_list_and_the_download_and_leaves_the_script(client):
+    item = client.post("/api/voiceover/record", files={"file": ("v.webm", _recording(2), "audio/webm")}).json()
+    assert item["name"] == ""
+    url = f"/api/voiceover/items/{item['id']}"
+    named = client.patch(url, json={"name": "  Riya intro/take 2  "}).json()
+    assert named["name"] == "Riya intro/take 2" and named["text"] == item["text"]
+    assert client.get("/api/voiceover/items").json()[0]["name"] == "Riya intro/take 2"
+    assert "Riya_introtake_2.mp3" in client.get(named["download"]).headers["content-disposition"]
+    edited = client.post(f"{url}/edit", json={"start": 0, "end": 1}).json()
+    assert edited["name"] == "Riya intro/take 2 (edited)"
+    again = client.post(f"/api/voiceover/items/{edited['id']}/edit", json={"start": 0, "end": .8}).json()
+    assert again["name"] == edited["name"]
+    assert client.patch(url, json={"name": ""}).json()["name"] == ""  # back to showing the script
+    assert client.patch(url, json={"name": "x" * 81}).status_code == 422
+    assert client.patch("/api/voiceover/items/abc", json={"name": "x"}).status_code == 404
+
+
+def test_voiceovers_saved_before_names_existed_still_work(client):
+    item = client.post("/api/voiceover/record", files={"file": ("v.webm", _recording(2), "audio/webm")}).json()
+    path = vo._meta_path(item["id"])
+    meta = json.loads(path.read_text())
+    del meta["name"]
+    path.write_text(json.dumps(meta))
+    assert client.get("/api/voiceover/items").json()[0]["name"] == ""
+    assert client.get(item["download"]).status_code == 200
+
+
+def _level(mp3: bytes, start: float, end: float) -> float:
+    """How loud a stretch of an MP3 is (root mean square of its samples)."""
+    path = WORK_DIR / "level.mp3"
+    pcm = WORK_DIR / "level.raw"
+    path.write_bytes(mp3)
+    run_ffmpeg(["-i", str(path), "-ss", str(start), "-to", str(end), "-f", "s16le", "-ac", "1", "-ar", "8000",
+                str(pcm)])
+    samples = array.array("h", pcm.read_bytes())
+    return math.sqrt(sum(v * v for v in samples) / len(samples))
+
+
+def _noisy_take(volume: float) -> bytes:
+    """Three seconds of a voice-like tone with a second of steady hiss after it."""
+    ensure_dirs()
+    out = WORK_DIR / f"noisy_{volume}.webm"
+    graph = (f"sine=f=300:d=3,apad=whole_dur=4,volume={volume}[voice];"
+             "anoisesrc=d=4:a=0.02:c=white[hiss];[voice][hiss]amix=inputs=2:normalize=0")
+    run_ffmpeg(["-f", "lavfi", "-i", graph, "-c:a", "libopus", str(out)])
+    return out.read_bytes()
+
+
+def test_clean_up_previews_without_saving_and_quietens_the_noise(client):
+    item = client.post("/api/voiceover/record", files={"file": ("v.webm", _noisy_take(.3), "audio/webm")}).json()
+    url = f"/api/voiceover/items/{item['id']}/preview"
+    original = client.get(item["url"]).content
+    count = len(client.get("/api/voiceover/items").json())
+    cleaned = client.post(url, json={"noise": True}).content
+    assert len(client.get("/api/voiceover/items").json()) == count
+    assert _level(cleaned, 3.3, 3.9) < _level(original, 3.3, 3.9) / 2  # hiss down
+    assert _level(cleaned, 1, 2) > _level(original, 1, 2) * .7  # voice kept
+    assert client.post(url, json={}).status_code == 400
+    assert client.post("/api/voiceover/items/abc/preview", json={"noise": True}).status_code == 404
+
+
+def test_clean_up_evens_the_volume_and_the_edit_keeps_it(client):
+    item = client.post("/api/voiceover/record", files={"file": ("v.webm", _noisy_take(.03), "audio/webm")}).json()
+    original = client.get(item["url"]).content
+    louder = client.post(f"/api/voiceover/items/{item['id']}/preview", json={"volume": True}).content
+    assert _level(louder, 1, 2) > _level(original, 1, 2) * 2
+    edit = {"start": 0, "end": 2, "volume": True}
+    saved = client.post(f"/api/voiceover/items/{item['id']}/edit", json=edit).json()
+    assert saved["duration"] == pytest.approx(2, abs=.15)
+    assert _level(client.get(saved["url"]).content, .5, 1.5) > _level(original, 1, 2) * 2
+
+
+def _hertz(mp3: bytes, start: float, end: float) -> float:
+    """The pitch of a plain tone, from how often it crosses zero."""
+    path = WORK_DIR / "hertz.mp3"
+    pcm = WORK_DIR / "hertz.raw"
+    path.write_bytes(mp3)
+    run_ffmpeg(["-i", str(path), "-ss", str(start), "-to", str(end), "-f", "s16le", "-ac", "1", "-ar", "44100",
+                str(pcm)])
+    v = array.array("h", pcm.read_bytes())
+    crossings = sum(1 for a, b in zip(v, v[1:]) if a < 0 <= b)
+    return crossings / (len(v) / 44100)
+
+
+@pytest.mark.parametrize("semitones", [12, -12, 4, -5])
+def test_pitch_moves_the_note_and_keeps_the_length(client, semitones):
+    item = client.post("/api/voiceover/record", files={"file": ("v.webm", _recording(4), "audio/webm")}).json()
+    shifted = client.post(f"/api/voiceover/items/{item['id']}/preview", json={"pitch": semitones}).content
+    assert _hertz(shifted, 1, 3) == pytest.approx(300 * 2 ** (semitones / 12), rel=.03)
+    path = WORK_DIR / "shifted.mp3"
+    path.write_bytes(shifted)
+    assert probe(path).duration == pytest.approx(item["duration"], abs=.2)
+
+
+def test_every_voice_style_works_and_saves_with_trim_and_speed(client):
+    item = client.post("/api/voiceover/record", files={"file": ("v.webm", _recording(2), "audio/webm")}).json()
+    base = f"/api/voiceover/items/{item['id']}"
+    for style in vo.STYLES:
+        if style:
+            r = client.post(f"{base}/preview", json={"style": style})
+            assert r.status_code == 200, style
+    assert client.post(f"{base}/preview", json={"style": "kazoo"}).status_code == 400
+    assert client.post(f"{base}/preview", json={"pitch": 30}).status_code == 422
+    assert client.post(f"{base}/preview", json={}).status_code == 400
+    saved = client.post(f"{base}/edit", json={"start": .5, "end": 1.5, "speed": 2, "pitch": 12,
+                                              "style": "radio"}).json()
+    assert saved["duration"] == pytest.approx(.5, abs=.15)
+    assert _hertz(client.get(saved["url"]).content, .1, .4) == pytest.approx(600, rel=.05)
+    generated = client.post("/api/voiceover/speak", json={"text": "Hello there", "voice": "en-US-AriaNeural"}).json()
+    r = client.post(f"/api/voiceover/items/{generated['id']}/preview", json={"pitch": -3, "style": "deep"})
+    assert r.status_code == 200  # generated voices use a different sample rate

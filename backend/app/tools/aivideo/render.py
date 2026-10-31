@@ -3,7 +3,7 @@
 Each scene becomes one silent segment: footage (video cropped+looped, image with a Ken Burns
 move, or an animated gradient), a PNG with the title banner + ranking list, the scene label
 sliding in, timed caption PNGs and a short white flash. Segments are joined without
-re-encoding, then the voiceover (master track), music and whooshes are mixed on top.
+re-encoding, then the voiceover (master track), music, sound effects and whooshes are mixed on top.
 """
 import shutil
 import time
@@ -185,6 +185,24 @@ def mix_audio(p: AiProject, video: Path, voice: Path, total: float, boundaries: 
                      f"afade=t=out:st={max(total - 1.5, 0):.3f}:d=1.5[mu]")
         mix.append("[mu]")
         n_in += 1
+    for k, c in enumerate(p.sounds):
+        path = ft.project_dir(p.id) / c.file
+        if not path.exists() or c.start >= total or c.volume <= 0:
+            continue
+        loops = c.length > c.played + 0.01
+        args += ["-i", str(path)]
+        fades = ",afade=t=in:d=0.5" if loops else ",afade=t=in:d=0.02" if c.trim_start else ""
+        if loops or c.length < c.played - 0.01 or c.trim_end:  # cut short: don't end on a click
+            d = min(0.5, c.length / 3)
+            fades += f",afade=t=out:st={c.length - d:.3f}:d={d:.3f}"
+        kept = f"atrim={c.trim_start:.3f}:{c.trim_start + c.part:.3f},asetpts=PTS-STARTPTS"
+        tempo = f",atempo={c.speed:.3f}" if c.speed != 1 else ""
+        repeat = f",aloop=loop=-1:size={round(c.played * 48000)}" if loops else ""
+        graph.append(f"[{n_in}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                     f"{kept}{tempo}{repeat},atrim=0:{c.length:.3f},asetpts=PTS-STARTPTS,"
+                     f"volume={c.volume:.3f}{fades},adelay={round(c.start * 1000)}:all=1[sx{k}]")
+        mix.append(f"[sx{k}]")
+        n_in += 1
     if s.whoosh and boundaries:
         whoosh = work / "whoosh.wav"
         run_ffmpeg(["-f", "lavfi", "-i", "anoisesrc=d=0.55:c=pink:r=48000:a=0.5",
@@ -217,16 +235,16 @@ def label_window(scene: Scene, a: float, b: float) -> tuple[float, float]:
     return start, end
 
 
-def scene_cues(scene: Scene, a: float, b: float) -> list[tuple[str, float, float]]:
-    """Captions for a scene as (text, start, end) in video seconds, clipped to the scene."""
+def scene_cues(scene: Scene, a: float, b: float) -> list[tuple[str, float, float, str | None]]:
+    """Captions for a scene as (text, start, end, colour) in video seconds, clipped to the scene."""
     if not scene.show_captions:
         return []
     if scene.captions is not None:  # manual list (may be empty = all captions deleted)
-        cues = [(c.text, max(c.start, a), min(c.end, b)) for c in scene.captions]
+        cues = [(c.text, max(c.start, a), min(c.end, b), c.color) for c in scene.captions]
         return [c for c in cues if c[0].strip() and c[2] - c[1] > 0.05]
     chunks = caption_chunks(scene.voiceover)
     d = (b - a) / max(len(chunks), 1)
-    return [(t, a + d * j, a + d * (j + 1)) for j, t in enumerate(chunks)]
+    return [(t, a + d * j, a + d * (j + 1), None) for j, t in enumerate(chunks)]
 
 
 def render(p: AiProject, job: Job | None = None) -> dict:
@@ -288,8 +306,8 @@ def render(p: AiProject, job: Job | None = None) -> dict:
                 label = (label_png, la - seg_start, lb - seg_start)
             caps = []
             if p.settings.captions:
-                for j, (text, a, b) in enumerate(scene_cues(scene, seg_start, seg_start + dur)):
-                    img = caption_image(text)
+                for j, (text, a, b, color) in enumerate(scene_cues(scene, seg_start, seg_start + dur)):
+                    img = caption_image(text, color or p.caption_color, p.caption_highlights)
                     if img:
                         png = work / f"cap_{i}_{j}.png"
                         img.save(png)

@@ -19,7 +19,7 @@ from ...config import DATA_DIR
 from ...ffmpeg_util import ffmpeg_exe
 from ...jobs import Job, UserError
 from .models import Cue, Scene
-from .script import caption_chunks
+from .script import caption_chunks, speech
 
 MODELS_DIR = DATA_DIR / "models"
 _model = None
@@ -88,6 +88,24 @@ Word = tuple[str, float, float]  # (text, start, end)
 # A difference of up to this many words is a misheard word ("Dadi" heard as "Daddy"); more than
 # that means the voiceover says something the script doesn't (or the other way round).
 SLIP = 3
+
+
+def join_split_words(script_words: list[str], heard: list[Word]) -> list[Word]:
+    """One script word heard as two ("padlocked" as "bad locked") becomes one word again, so it
+    still lines up when the script around it differs from the audio."""
+    known = {norm(w) for w in script_words}
+    out, i = [], 0
+    while i < len(heard):
+        a, b = norm(heard[i][0]), norm(heard[i + 1][0]) if i + 1 < len(heard) else ""
+        split = min(len(a), len(b)) >= 3 and not (a in known and b in known)
+        close = difflib.get_close_matches(a + b, known - {a, b}, n=1, cutoff=0.8) if split else []
+        if close:
+            out.append((close[0], heard[i][1], heard[i + 1][2]))
+            i += 2
+        else:
+            out.append(heard[i])
+            i += 1
+    return out
 
 
 def _diff(script_words: list[str], heard: list[Word]) -> list[tuple[str, int, int, int, int]]:
@@ -167,11 +185,12 @@ def sync_scenes(scenes: list[Scene], heard: list[Word], total: float) -> tuple[l
     the scenes whose script mostly isn't in the voiceover."""
     words, owner = [], []
     for i, s in enumerate(scenes):
-        for w in s.voiceover.split():
+        for w in speech(s.voiceover).split():
             words.append(w)
             owner.append(i)
     if not words:
         raise UserError("The scenes have no voiceover text to match against the audio.")
+    heard = join_split_words(words, heard)
     times = align(words, heard, total)
     spoken = [False] * len(words)
     for tag, i1, i2, j1, j2 in _diff(words, heard):

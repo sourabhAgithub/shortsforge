@@ -47,7 +47,68 @@ export const FITS: [Fit, string][] = [
   ["fullscreen", "Full screen (covers the title banner)"],
 ];
 
-export type Cue = { text: string; start: number; end: number };
+export type Cue = {
+  text: string;
+  start: number;
+  end: number;
+  color?: string | null; // null = the video's caption colour
+};
+
+/** A sound on the effects track. Longer than the part of the file it keeps = it loops. */
+export type SoundClip = {
+  id: string;
+  file: string;
+  name: string;
+  url: string;
+  duration: number; // of the file
+  start: number;
+  length: number;
+  volume: number;
+  trim_start: number; // seconds cut off the start of the file
+  trim_end: number; // seconds cut off the end of the file
+  speed: number; // 2 = twice as fast, at the same pitch
+  credit: string; // who made it and its licence, for sounds from the free library
+};
+
+/** Seconds of the file a clip keeps. Mirrors SoundClip.part in models.py. */
+export const soundPart = (c: SoundClip) =>
+  Math.max(c.duration - c.trim_start - c.trim_end, 0.05);
+
+/** Seconds the kept part lasts at the clip's speed. Mirrors SoundClip.played in models.py. */
+export const soundPlayed = (c: SoundClip) => soundPart(c) / c.speed;
+
+/** Fills in fields a project saved by an older version of the app doesn't have. */
+export const withSoundDefaults = (p: AiProject): AiProject => ({
+  ...p,
+  sounds: p.sounds.map((c) => ({
+    ...c,
+    trim_start: c.trim_start ?? 0,
+    trim_end: c.trim_end ?? 0,
+    speed: c.speed ?? 1,
+    credit: c.credit ?? "",
+  })),
+});
+
+/** A free download for a suggested sound. */
+export type SoundOption = {
+  title: string;
+  url: string;
+  duration: number;
+  licence: string;
+  artist: string;
+  about: string; // what the uploader says it is
+  page: string;
+};
+
+export type SoundIdea = {
+  sound: string;
+  file: string | null; // null = a sound the user doesn't have yet
+  start: number;
+  length: number;
+  ambient: boolean; // runs across a stretch of the video, rather than playing once
+  reason: string;
+  options?: SoundOption[]; // free downloads, for a sound the user doesn't have
+};
 
 export type Scene = {
   id: string;
@@ -86,8 +147,11 @@ export type AiProject = {
   title: string;
   title_color: string;
   title_highlights: Record<string, string>; // normalised word -> colour
+  caption_color: string;
+  caption_highlights: Record<string, string>; // normalised word -> colour
   voiceover: MediaFile | null;
   music: MediaFile | null;
+  sounds: SoundClip[];
   script_text: string;
   scenes: Scene[];
   settings: AiSettings;
@@ -160,7 +224,10 @@ export function resolveTimings(
 
 /** Mirror of caption_chunks() in script.py: 2–4 words per caption, sizes as even as possible. */
 export function captionChunks(text: string): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
+  const words = text
+    .replace(/\[[a-z][a-z' -]*\]/gi, " ") // delivery tags like [whispers] aren't spoken
+    .split(/\s+/)
+    .filter(Boolean);
   if (!words.length) return [];
   if (words.length <= 4) return [words.join(" ")];
   const n = Math.ceil(words.length / 3);
@@ -182,7 +249,7 @@ export function sceneCues(scene: Scene, a: number, b: number): Cue[] {
   if (scene.captions) {
     return scene.captions
       .map((c) => ({
-        text: c.text,
+        ...c,
         start: Math.max(c.start, a),
         end: Math.min(c.end, b),
       }))
@@ -195,6 +262,19 @@ export function sceneCues(scene: Scene, a: number, b: number): Cue[] {
     start: a + d * j,
     end: a + d * (j + 1),
   }));
+}
+
+/** Which row of the effects track each clip sits on, so clips that overlap stay visible. */
+export function soundRows(clips: SoundClip[]): Map<string, number> {
+  const ends: number[] = [];
+  const rows = new Map<string, number>();
+  for (const c of [...clips].sort((x, y) => x.start - y.start)) {
+    let row = ends.findIndex((end) => end <= c.start);
+    if (row < 0) row = ends.length;
+    ends[row] = c.start + c.length;
+    rows.set(c.id, row);
+  }
+  return rows;
 }
 
 /** Mirror of label_window() in render.py: when the label is on screen (the whole scene unless set). */
